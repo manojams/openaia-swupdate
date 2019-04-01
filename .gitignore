@@ -1,0 +1,106 @@
+#
+# NOTE! Don't add files that are generated in specific
+# subdirectories here. Add them in the ".gitignore" file
+# in that subdirectory instead.
+#
+# Normal rules
+#
+
+*.rej
+*.orig
+*.a
+*.o
+*.su
+*~
+*.swp
+*.patch
+*.bin
+
+#
+# Kbuild ignores
+#
+.*
+*.o
+*.o.*
+*.a
+*.s
+scripts/basic/fixdep
+scripts/kconfig/mconf
+scripts/kconfig/zconf.hash.c
+scripts/kconfig/zconf.lex.c
+scripts/kconfig/zconf.tab.c
+
+# 
+swupdate
+swupdate_unstripped*
+lua_swupdate.so*
+tools/*_unstripped
+tools/client
+tools/progress
+tools/sendtohawkbit
+tools/hawkbitcfg
+tools/*.map
+tools/*.out
+
+#
+# Generated files
+#
+
+*.depend*
+include/autoconf.h
+include/config/
+include/generated/
+doc/build
+
+# stgit generated dirs
+patches-*
+.stgit-edit.txt
+
+# quilt's files
+patches
+series
+
+#
+# Backups / patches
+#
+*~
+*.orig
+*.rej
+/*.patch
+
+#
+# debugging stuff
+#
+.gdb_history
+.gdbinit
+.gdb_history
+
+# cscope files
+cscope.*
+
+# tags files
+/tags
+/ctags
+/etags
+
+#
+# acceptance-tests
+#
+scripts/acceptance-tests
+
+#
+# mischellaneous
+#
+scripts/basic/docproc
+scripts/basic/split-include
+scripts/kconfig/conf
+scripts/kconfig/lex.zconf.c
+scripts/kconfig/lxdialog/lxdialog
+
+#
+# web-app
+#
+web-app/dist/
+web-app/node_modules/
+web-app/package-lock.json
+web-app/swupdate-www.tar.gz
