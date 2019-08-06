@@ -1,6 +1,14 @@
 swupdate (2019.04-1~exp1) experimental; urgency=medium
 
   * New upstream release.
+  * Add d/source/lintian-overrides
+  * Update d/swupdate.install
+    - Fix filename to install.
+    - Use dh-exec.
+  * Update d/control
+    - Add dh-exec to B-D
+  * Add d/configs.
+    - Add config for debian. This config file removed MTD.
 
  -- Nobuhiro Iwamatsu <iwamatsu@debian.org>  Tue, 06 Aug 2019 22:54:13 +0900
 
