@@ -18,6 +18,7 @@
 #include "util.h"
 #include "handler.h"
 #include "bootloader.h"
+#include "progress.h"
 
 #define LUA_TYPE_PEMBSCR 1
 #define LUA_TYPE_HANDLER 2
@@ -80,11 +81,11 @@ static void lua_dump_table(lua_State *L, char *str, struct img_type *img, const 
 					lua_tostring(L, -1),
 					lua_tostring(L, -2));
 				if (img) {
-					TRACE("Inserting property %s[%s] = %s",
-							key,
-							lua_tostring(L, -1),
+					TRACE("Inserting property %s = %s",
+							key ? key : lua_tostring(L, -1),
 							lua_tostring(L, -2));
-					dict_insert_value(&img->properties, key,
+					dict_insert_value(&img->properties,
+							key ? key : lua_tostring(L, -1),
 							lua_tostring(L, -2));
 				}
 				break;
@@ -297,6 +298,8 @@ static void lua_bool_to_img(struct img_type *img, const char *key,
 		img->install_directly = (bool)val;
 	if (!strcmp(key, "install_if_different"))
 		img->id.install_if_different = (bool)val;
+	if (!strcmp(key, "install_if_higher"))
+		img->id.install_if_higher = (bool)val;
 	if (!strcmp(key, "encrypted"))
 		img->is_encrypted = (bool)val;
 	if (!strcmp(key, "partition"))
@@ -461,6 +464,7 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_BOOL(img, "compressed", compressed);
 		LUA_PUSH_IMG_BOOL(img, "installed_directly", install_directly);
 		LUA_PUSH_IMG_BOOL(img, "install_if_different", id.install_if_different);
+		LUA_PUSH_IMG_BOOL(img, "install_if_higher", id.install_if_higher);
 		LUA_PUSH_IMG_BOOL(img, "encrypted", is_encrypted);
 		LUA_PUSH_IMG_BOOL(img, "partition", is_partitioner);
 		LUA_PUSH_IMG_BOOL(img, "script", is_script);
@@ -801,6 +805,13 @@ static int l_get_tmpdir_scripts(lua_State *L)
 	lua_pushstring(L, get_tmpdirscripts());
 	return 1;
 }
+
+static int l_progress_update(lua_State *L)
+{
+	lua_Number percent =  luaL_checknumber (L, 1);
+	swupdate_progress_update((unsigned int) percent);
+	return 0;
+}
 #endif
 
 /**
@@ -830,6 +841,7 @@ static const luaL_Reg l_swupdate_handler[] = {
         { "call_handler", l_call_handler },
         { "tmpdirscripts", l_get_tmpdir_scripts },
         { "tmpdir", l_get_tmpdir },
+	{ "progress_update", l_progress_update },
         { NULL, NULL }
 };
 #endif

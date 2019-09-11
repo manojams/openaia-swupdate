@@ -99,6 +99,11 @@ static int extract_scripts(int fd, struct imglist *head, int fromfile)
 	const char* tmpdir_scripts = get_tmpdirscripts();
 
 	LIST_FOREACH(script, head, next) {
+		if (!script->fname[0] && (script->provided == 0)) {
+			TRACE("No script provided for script of type %s",
+				script->type);
+			continue;
+		}
 		if (script->provided == 0) {
 			ERROR("Required script %s not found in image",
 				script->fname);
@@ -169,7 +174,11 @@ static int update_bootloader_env(struct swupdate_cfg *cfg, const char *script)
 
 		if (!key || !value)
 			continue;
+#if defined(CONFIG_UBOOT) && !defined(CONFIG_UBOOT_NEWAPI)
+		snprintf(buf, sizeof(buf), "%s %s\n", key, value);
+#else
 		snprintf(buf, sizeof(buf), "%s=%s\n", key, value);
+#endif
 		if (write(fd, buf, strlen(buf)) != (ssize_t)strlen(buf)) {
 			  TRACE("Error saving temporary bootloader environment file");
 			  close(fd);
@@ -224,7 +233,7 @@ int install_single_image(struct img_type *img, int dry_run)
 	}
 	TRACE("Found installer for stream %s %s", img->fname, hnd->desc);
 
-	swupdate_progress_inc_step(img->fname);
+	swupdate_progress_inc_step(img->fname, hnd->desc);
 
 	/* TODO : check callback to push results / progress */
 	ret = hnd->installer(img, hnd->data);

@@ -54,6 +54,18 @@ ifeq ($(HAVE_LIBCRYPTO),)
 export HAVE_LIBCRYPTO = y
 endif
 
+ifeq ($(HAVE_MBEDTLS),)
+export HAVE_MBEDTLS = y
+endif
+
 ifeq ($(HAVE_JSON_C),)
 export HAVE_JSON_C = y
+endif
+
+ifeq ($(HAVE_LIBWEBSOCKETS),)
+export HAVE_LIBWEBSOCKETS = y
+endif
+
+ifeq ($(HAVE_URIPARSER),)
+export HAVE_URIPARSER = y
 endif

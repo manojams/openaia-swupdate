@@ -113,13 +113,14 @@ void swupdate_progress_update(unsigned int perc)
 	pthread_mutex_unlock(&prbar->lock);
 }
 
-void swupdate_progress_inc_step(char *image)
+void swupdate_progress_inc_step(char *image, char *handler_name)
 {
 	struct swupdate_progress *prbar = &progress;
 	pthread_mutex_lock(&prbar->lock);
 	prbar->msg.cur_step++;
 	prbar->msg.cur_percent = 0;
 	strncpy(prbar->msg.cur_image, image, sizeof(prbar->msg.cur_image));
+	strncpy(prbar->msg.hnd_name, handler_name, sizeof(prbar->msg.hnd_name));
 	prbar->step_running = true;
 	prbar->msg.status = RUN;
 	send_progress_msg();
@@ -185,7 +186,7 @@ static void unlink_socket(void)
 		return;
 	}
 #endif
-	unlink((char*)CONFIG_SOCKET_PROGRESS_PATH);
+	unlink(get_prog_socket());
 }
 
 void *progress_bar_thread (void __attribute__ ((__unused__)) *data)
@@ -200,15 +201,15 @@ void *progress_bar_thread (void __attribute__ ((__unused__)) *data)
 	SIMPLEQ_INIT(&prbar->conns);
 
 	/* Initialize and bind to UDS */
-	listen = listener_create((char*)CONFIG_SOCKET_PROGRESS_PATH, SOCK_STREAM);
+	listen = listener_create(get_prog_socket(), SOCK_STREAM);
 	if (listen < 0 ) {
-		ERROR("Error creating IPC socket %s, exiting.", (char*)CONFIG_SOCKET_PROGRESS_PATH);
+		ERROR("Error creating IPC socket %s, exiting.", get_prog_socket());
 		exit(2);
 	}
 
 	if (atexit(unlink_socket) != 0) {
 		TRACE("Cannot setup socket cleanup on exit, %s won't be unlinked.",
-			  (char*)CONFIG_SOCKET_PROGRESS_PATH);
+			get_prog_socket());
 	}
 
 	do {
