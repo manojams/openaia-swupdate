@@ -155,6 +155,16 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 			  swcfg->bootloader_transaction_marker == true ? "true" : "false");
 	}
 
+	if ((setting = find_node(p, cfg, "output", swcfg)) != NULL) {
+		if (!strlen(swcfg->output)) {
+			TRACE("Output file set but not enabled with -o, ignored");
+		} else {
+			GET_FIELD_STRING(p, setting, NULL, swcfg->output);
+			get_field(p, setting, NULL, &swcfg->output);
+			TRACE("Incoming SWU stored : %s", swcfg->output);
+		}
+	}
+
 	return true;
 }
 
@@ -280,6 +290,7 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 	get_field(p, elem, "installed-directly", &image->install_directly);
 	get_field(p, elem, "preserve-attributes", &image->preserve_attributes);
 	get_field(p, elem, "install-if-different", &image->id.install_if_different);
+	get_field(p, elem, "install-if-higher", &image->id.install_if_higher);
 	get_field(p, elem, "encrypted", &image->is_encrypted);
 
 	return 0;
@@ -365,12 +376,10 @@ static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lu
 			continue;
 
 		/*
-		 * Check for mandatory field
+		 * Check for filename field
 		 */
-		if(!(exist_field_string(p, elem, "filename"))) {
-			TRACE("Script entry without filename field, skipping..");
-			continue;
-		}
+		if(!(exist_field_string(p, elem, "filename")))
+			TRACE("Script entry without filename field.");
 
 		script = (struct img_type *)calloc(1, sizeof(struct img_type));
 		if (!script) {
@@ -411,13 +420,14 @@ static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lu
 	return 0;
 }
 
-static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
+static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
 {
 	void *setting, *elem;
-	int count, i;
+	int count, i, skip;
 	struct img_type *script;
-	char name[SWUPDATE_GENERAL_STRING_SIZE];
-	char value[MAX_BOOT_SCRIPT_LINE_LENGTH];
+	struct img_type dummy;
+
+	memset(&dummy, 0, sizeof(dummy));
 
 	setting = find_node(p, cfg, "uboot", swcfg);
 
@@ -442,12 +452,18 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 			 * Call directly get_field_string with size 0
 			 * to let allocate the place for the strings
 			 */
-			GET_FIELD_STRING(p, elem, "name", name);
-			GET_FIELD_STRING(p, elem, "value", value);
-			dict_set_value(&swcfg->bootloader, name, value);
-			TRACE("Bootloader var: %s = %s",
-				name,
-				dict_get_value(&swcfg->bootloader, name));
+			GET_FIELD_STRING(p, elem, "name", dummy.id.name);
+			GET_FIELD_STRING(p, elem, "value", dummy.id.version);
+			skip = run_embscript(p, elem, &dummy, L, swcfg->embscript);
+			if (skip < 0) {
+				return -1;
+			}
+			if (!skip) {
+				dict_set_value(&swcfg->bootloader, dummy.id.name, dummy.id.version);
+				TRACE("Bootloader var: %s = %s",
+					dummy.id.name,
+					dict_get_value(&swcfg->bootloader, dummy.id.name));
+			}
 			continue;
 		}
 
@@ -470,6 +486,14 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 		}
 
 		script->is_script = 1;
+
+		skip = run_embscript(p, elem, script, L, swcfg->embscript);
+		if (skip != 0) {
+			free_image(script);
+			if (skip < 0)
+				return -1;
+			continue;
+		}
 
 		LIST_INSERT_HEAD(&swcfg->bootscripts, script, next);
 
@@ -547,7 +571,8 @@ static int parse_images(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua
 			strlen(image->path) ? image->path : image->device,
 			strlen(image->type) ? image->type : "NOT FOUND",
 			image->install_directly ? " (installed from stream)" : "",
-			(strlen(image->id.name) && image->id.install_if_different) ?
+			(strlen(image->id.name) && (image->id.install_if_different ||
+						    image->id.install_if_higher)) ?
 					" Version must be checked" : ""
 			);
 
@@ -664,7 +689,7 @@ static int parser(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 		parse_files(p, cfg, swcfg, L) ||
 		parse_images(p, cfg, swcfg, L) ||
 		parse_scripts(p, cfg, swcfg, L) ||
-		parse_bootloader(p, cfg, swcfg);
+		parse_bootloader(p, cfg, swcfg, L);
 
 	/*
 	 * Move the partitions at the beginning to be processed

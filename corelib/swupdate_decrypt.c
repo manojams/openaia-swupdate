@@ -17,7 +17,7 @@
 #include "sslapi.h"
 #include "util.h"
 
-struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char *iv, unsigned char *salt)
+struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char *iv)
 {
 	struct swupdate_digest *dgst;
 	int ret;
@@ -32,20 +32,6 @@ struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char 
 	dgst = calloc(1, sizeof(*dgst));
 	if (!dgst) {
 		return NULL;
-	}
-
-	if (salt != NULL) {
-		unsigned char dummy_key[EVP_MAX_KEY_LENGTH];
-		unsigned char dummy_iv[EVP_MAX_IV_LENGTH];
-		unsigned char dummy_pwd[5] = "DUMMY";
-		if (!EVP_BytesToKey(cipher, EVP_sha1(), salt,
-							dummy_pwd, sizeof(dummy_pwd),
-							1,
-							(unsigned char *)&dummy_key, (unsigned char *)&dummy_iv)) {
-			ERROR("Cannot set salt.");
-			free(dgst);
-			return NULL;
-		}
 	}
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
@@ -81,7 +67,7 @@ struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char 
 }
 
 int swupdate_DECRYPT_update(struct swupdate_digest *dgst, unsigned char *buf, 
-				int *outlen, unsigned char *cryptbuf, int inlen)
+				int *outlen, const unsigned char *cryptbuf, int inlen)
 {
 	if (EVP_DecryptUpdate(SSL_GET_CTXDEC(dgst), buf, outlen, cryptbuf, inlen) != 1) {
 		const char *reason = ERR_reason_error_string(ERR_peek_error());

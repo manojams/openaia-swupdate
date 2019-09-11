@@ -18,6 +18,7 @@
  */
 #if defined(CONFIG_HASH_VERIFY) || defined(CONFIG_ENCRYPTED_IMAGES) || \
 	defined(CONFIG_SURICATTA_SSL) || defined(CONFIG_CHANNEL_CURL_SSL)
+#if defined(CONFIG_SSL_IMPL_OPENSSL)
 #include <openssl/bio.h>
 #include <openssl/objects.h>
 #include <openssl/err.h>
@@ -45,6 +46,7 @@
 
 struct swupdate_digest {
 	EVP_PKEY *pkey;		/* this is used for RSA key */
+	EVP_PKEY_CTX *ckey;	/* this is used for RSA key */
 	X509_STORE *certs;	/* this is used if CMS is set */
 	EVP_MD_CTX *ctx;
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
@@ -95,22 +97,47 @@ static inline uint32_t SSL_X509_get_extended_key_usage(X509 *x)
 #endif
 }
 
+#elif defined(CONFIG_SSL_IMPL_MBEDTLS)
+#include <mbedtls/md.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/cipher.h>
+
+#define EVP_MAX_BLOCK_LENGTH (16)
+#define swupdate_crypto_init()
+
+struct swupdate_digest {
+#ifdef CONFIG_HASH_VERIFY
+	mbedtls_md_context_t mbedtls_md_context;
+#endif /* CONFIG_HASH_VERIFY */
+#ifdef CONFIG_SIGNED_IMAGES
+	mbedtls_pk_context mbedtls_pk_context;
+#endif /* CONFIG_SIGNED_IMAGES */
+#ifdef CONFIG_ENCRYPTED_IMAGES
+	mbedtls_cipher_context_t mbedtls_cipher_context;
+#endif /* CONFIG_ENCRYPTED_IMAGES */
+};
+
+#else /* CONFIG_SSL_IMPL */
+#error unknown SSL implementation
+#endif /* CONFIG_SSL_IMPL */
 #else
 #define swupdate_crypto_init()
 #define AES_BLOCK_SIZE	16
 #endif
 
 #if defined(CONFIG_HASH_VERIFY)
+struct swupdate_cfg;
+
 int swupdate_dgst_init(struct swupdate_cfg *sw, const char *keyfile);
 struct swupdate_digest *swupdate_HASH_init(const char *SHALength);
-int swupdate_HASH_update(struct swupdate_digest *dgst, unsigned char *buf,
+int swupdate_HASH_update(struct swupdate_digest *dgst, const unsigned char *buf,
 				size_t len);
 int swupdate_HASH_final(struct swupdate_digest *dgst, unsigned char *md_value,
 	       			unsigned int *md_len);
 void swupdate_HASH_cleanup(struct swupdate_digest *dgst);
 int swupdate_verify_file(struct swupdate_digest *dgst, const char *sigfile,
 				const char *file, const char *signer_name);
-int swupdate_HASH_compare(unsigned char *hash1, unsigned char *hash2);
+int swupdate_HASH_compare(const unsigned char *hash1, const unsigned char *hash2);
 
 
 #else
@@ -124,9 +151,9 @@ int swupdate_HASH_compare(unsigned char *hash1, unsigned char *hash2);
 #endif
 
 #ifdef CONFIG_ENCRYPTED_IMAGES
-struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char *iv, unsigned char *salt);
+struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char *iv);
 int swupdate_DECRYPT_update(struct swupdate_digest *dgst, unsigned char *buf, 
-				int *outlen, unsigned char *cryptbuf, int inlen);
+				int *outlen, const unsigned char *cryptbuf, int inlen);
 int swupdate_DECRYPT_final(struct swupdate_digest *dgst, unsigned char *buf,
 				int *outlen);
 void swupdate_DECRYPT_cleanup(struct swupdate_digest *dgst);
@@ -135,7 +162,7 @@ void swupdate_DECRYPT_cleanup(struct swupdate_digest *dgst);
  * Note: macro for swupdate_DECRYPT_init is
  * just to avoid compiler warnings
  */
-#define swupdate_DECRYPT_init(key, iv, salt) (((key != NULL) | (ivt != NULL) | (salt != NULL)) ? NULL : NULL)
+#define swupdate_DECRYPT_init(key, iv) (((key != NULL) | (ivt != NULL)) ? NULL : NULL)
 #define swupdate_DECRYPT_update(p, buf, len, cbuf, inlen) (-1)
 #define swupdate_DECRYPT_final(p, buf, len) (-1)
 #define swupdate_DECRYPT_cleanup(p)

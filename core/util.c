@@ -22,6 +22,7 @@
 #include <limits.h>
 #include <time.h>
 #include <libgen.h>
+#include <regex.h>
 
 #include "swupdate.h"
 #include "util.h"
@@ -30,12 +31,10 @@
 /*
  * key  is 256 bit for aes_256
  * ivt  is 128 bit
- * salt is  64 bit
  */
 struct decryption_key {
 	unsigned char key[32];
 	unsigned char ivt[16];
-	unsigned char salt[8];
 };
 
 static struct decryption_key *aes_key = NULL;
@@ -171,6 +170,28 @@ char *mstrcat(const char **nodes, const char *delim)
 	return dest;
 }
 
+/*
+ * Alocate and return a string as part of
+ * another string
+ * s = substring(src, n)
+ * the returned string is allocated on the heap
+ * and must be freed by the caller
+ */
+char *substring(const char *src, int first, int len) {
+	char *s;
+	if (len > strlen(src))
+		len = strlen(src);
+	if (first > len)
+		return NULL;
+	s = malloc(len + 1);
+	if (!s)
+		return NULL;
+	memcpy(s, &src[first], len);
+	s[len] = '\0';
+	return s;
+}
+
+
 int openfileoutput(const char *filename)
 {
 	int fdout;
@@ -261,6 +282,47 @@ int get_hw_revision(struct hw_type *hw)
 	return 0;
 }
 
+/**
+ * hwid_match - try to match a literal or RE hwid
+ * @rev: literal or RE specification
+ * @hwrev: current HW revision
+ *
+ * Return: 0 if match found, non-zero otherwise
+ */
+int hwid_match(const char* rev, const char* hwrev)
+{
+	int ret, prefix_len;
+	char errbuf[256];
+	regex_t re;
+	const char *re_str;
+
+	prefix_len = strlen(HWID_REGEXP_PREFIX);
+
+	/* literal revision */
+	if (strncmp(rev, HWID_REGEXP_PREFIX, prefix_len)) {
+		ret = strcmp(rev, hwrev);
+		goto out;
+	}
+
+	/* regexp revision */
+	re_str = rev+prefix_len;
+
+	if ((ret = regcomp(&re, re_str, REG_EXTENDED|REG_NOSUB)) != 0) {
+		regerror(ret, &re, errbuf, sizeof(errbuf));
+		ERROR("error in regexp %s: %s", re_str, errbuf);
+		goto out;
+	}
+
+	if ((ret = regexec(&re, hwrev, 0, NULL, 0)) == 0)
+		TRACE("hwrev %s matched by regexp %s", hwrev, re_str);
+	else
+		TRACE("no match of hwrev %s with regexp %s", hwrev, re_str);
+
+	regfree(&re);
+out:
+	return ret;
+}
+
 /*
  * The HW revision of the board *MUST* be inserted
  * in the sw-description file
@@ -277,8 +339,8 @@ int check_hw_compatibility(struct swupdate_cfg *cfg)
 
 	TRACE("Hardware %s Revision: %s", cfg->hw.boardname, cfg->hw.revision);
 	LIST_FOREACH(hw, &cfg->hardware, next) {
-		if (hw && strlen(hw->revision) == strlen(cfg->hw.revision) &&
-				(!strcmp(hw->revision, cfg->hw.revision))) {
+		if (hw &&
+		    (!hwid_match(hw->revision, cfg->hw.revision))) {
 			TRACE("Hardware compatibility verified");
 			return 0;
 		}
@@ -416,26 +478,22 @@ int count_elem_list(struct imglist *list)
 int load_decryption_key(char *fname)
 {
 	FILE *fp;
-	char *b1 = NULL, *b2 = NULL, *b3 = NULL;
+	char *b1 = NULL, *b2 = NULL;
 	int ret;
 
 	fp = fopen(fname, "r");
 	if (!fp)
 		return -EBADF;
 
-	ret = fscanf(fp, "%ms %ms %ms", &b1, &b2, &b3);
+	ret = fscanf(fp, "%ms %ms", &b1, &b2);
 	switch (ret) {
 		case 2:
-			b3 = NULL;
 			DEBUG("Read decryption key and initialization vector from file %s.", fname);
-			break;
-		case 3:
-			DEBUG("Read decryption key, initialization vector, and salt from file %s.", fname);
 			break;
 		default:
 			if (b1 != NULL)
 				free(b1);
-			fprintf(stderr, "File with decryption key is not in the format <key> <ivt> nor <key> <ivt> <salt>\n");
+			fprintf(stderr, "File with decryption key is not in the format <key> <ivt>\n");
 			fclose(fp);
 			return -EINVAL;
 	}
@@ -449,15 +507,12 @@ int load_decryption_key(char *fname)
 		return -ENOMEM;
 
 	ret = ascii_to_bin(aes_key->key,  b1, sizeof(aes_key->key)  * 2) |
-	      ascii_to_bin(aes_key->ivt,  b2, sizeof(aes_key->ivt)  * 2) |
-	      ascii_to_bin(aes_key->salt, b3, sizeof(aes_key->salt) * 2);
+	      ascii_to_bin(aes_key->ivt,  b2, sizeof(aes_key->ivt)  * 2);
 
 	if (b1 != NULL)
 		free(b1);
 	if (b2 != NULL)
 		free(b2);
-	if (b3 != NULL)
-		free(b3);
 
 	if (ret) {
 		fprintf(stderr, "Keys are invalid\n");
@@ -477,12 +532,6 @@ unsigned char *get_aes_ivt(void) {
 	if (!aes_key)
 		return NULL;
 	return aes_key->ivt;
-}
-
-unsigned char *get_aes_salt(void) {
-	if (!aes_key)
-		return NULL;
-	return aes_key->salt;
 }
 
 char** string_split(const char* in, const char d)
