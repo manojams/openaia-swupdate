@@ -17,7 +17,7 @@ Files:     corelib/channel_curl.c
            corelib/verify_signature.c
            corelib/swupdate_rsa_verify.c
            corelib/swupdate_decrypt.c
-           corelib/test/test_crypt.c
+           test/test_crypt.c
            corelib/swupdate_cms_verify.c
            core/cpio_utils.c
            core/swupdate.c
@@ -58,8 +58,8 @@ Files:     corelib/lua_compat.c
 Copyright: 2017 Siemens AG, Christian Storm <christian.storm@siemens.com> 
 License:   LGPL-2.1+
 
-Files:     corelib/test/Makefile
-           corelib/test/test_crypt.c
+Files:     test/Makefile
+           test/test_crypt.c
            suricatta/test/Makefile
            suricatta/test/test_json.c
            suricatta/test/test_server_hawkbit.c
