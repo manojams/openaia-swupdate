@@ -16,6 +16,7 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
 	mv doc/build/man/sendtohawkbit.1 doc/build/man/swupdate-sendtohawkbit.1
 	mv doc/build/man/hawkbitcfg.1 doc/build/man/swupdate-hawkbitcfg.1
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
+	mv doc/build/man/sysrestart.1 doc/build/man/swupdate-sysrestart.1
 endif
 
 override_dh_dwz:
