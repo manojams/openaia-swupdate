@@ -1,7 +1,6 @@
-#! /usr/bin/dh-exec
-usr/bin/swupdate => /usr/bin/swupdate
-usr/bin/client => /usr/bin/swupdate-client
-usr/bin/sendtohawkbit => /usr/bin/swupdate-sendtohawkbit
-usr/bin/progress => /usr/bin/swupdate-progress
-usr/bin/hawkbitcfg => /usr/bin/swupdate-hawkbitcfg
-usr/bin/swupdate-sysrestart => /usr/bin/swupdate-sysrestart
+usr/bin/swupdate
+usr/bin/swupdate-client
+usr/bin/swupdate-sendtohawkbit
+usr/bin/swupdate-progress
+usr/bin/swupdate-hawkbitcfg
+usr/bin/swupdate-sysrestart

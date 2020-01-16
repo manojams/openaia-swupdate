@@ -1,0 +1,45 @@
+From 9b2a236f804857fde79f0e9a1183118925dee4cd Mon Sep 17 00:00:00 2001
+From: Stefano Babic <sbabic@denx.de>
+Date: Sat, 30 Nov 2019 23:50:47 +0100
+Subject: [PATCH] doc: fix build of man pages
+
+Signed-off-by: Stefano Babic <sbabic@denx.de>
+---
+ doc/source/conf.py                    | 8 ++++----
+ doc/source/swupdate-sendtohawkbit.rst | 6 +++---
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/doc/source/conf.py b/doc/source/conf.py
+index 881ad46a..6341500a 100644
+--- a/doc/source/conf.py
++++ b/doc/source/conf.py
+@@ -234,10 +234,10 @@
+ # (source start file, name, description, authors, manual section).
+ man_pages = [
+         ('index', 'swupdate', u'Swupdate Documentation', [u'Stefano Babic'], 1),
+-        ('sendtohawkbit', 'sendtohawkbit', u'sendtohawkbit tool', '', 1),
+-        ('client', 'client', u'SWUpdate client tool', '', 1),
+-        ('hawkbitcfg', 'hawkbitcfg', u'SWUpdate Hawkbit Configuration tool', '', 1),
+-        ('swupdate_progress', 'progress', u'SWUpdate progress tool', '', 1),
++        ('swupdate-sendtohawkbit', 'sendtohawkbit', u'swupdate-sendtohawkbit tool', '', 1),
++        ('swupdate-client', 'client', u'SWUpdate client tool', '', 1),
++        ('swupdate-hawkbitcfg', 'hawkbitcfg', u'SWUpdate Hawkbit Configuration tool', '', 1),
++        ('swupdate-progress', 'progress', u'SWUpdate progress tool', '', 1),
+         ]
+ 
+ 
+diff --git a/doc/source/swupdate-sendtohawkbit.rst b/doc/source/swupdate-sendtohawkbit.rst
+index 1cee228e..ddb08241 100644
+--- a/doc/source/swupdate-sendtohawkbit.rst
++++ b/doc/source/swupdate-sendtohawkbit.rst
+@@ -1,7 +1,7 @@
+-sendtohawkbit
+-=============
++swupdate-sendtohawkbit
++======================
+ 
+-sendtohawkbit is a small tool that tries to connect to a running instance
++swupdate-sendtohawkbit is a small tool that tries to connect to a running instance
+ of SWUpdate and uses it as proxy to send data to the Hawkbit Server.
+ A typical use case is after a new software was installed but it is
+ required the acknowledge by an application or by an operator to activate it.
