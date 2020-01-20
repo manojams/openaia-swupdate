@@ -26,11 +26,16 @@
 #include <parselib.h>
 #include <progress_ipc.h>
 #include <swupdate_settings.h>
+#include <time.h>
 
 #include "mongoose.h"
+#include "util.h"
 
 #define MG_PORT "8080"
 #define MG_ROOT "."
+
+/* in seconds. If no packet is received with this timeout, connection is broken */
+#define MG_TIMEOUT	120
 
 enum MONGOOSE_API_VERSION {
 	MONGOOSE_API_V1 = 1,
@@ -56,6 +61,7 @@ struct file_upload_state {
 };
 
 static bool run_postupdate;
+static unsigned int watchdog_conn = 0;
 static struct mg_serve_http_opts s_http_server_opts;
 static void upload_handler(struct mg_connection *nc, int ev, void *p);
 
@@ -280,95 +286,6 @@ static void *broadcast_progress_thread(void *data)
 }
 
 /*
- * These functions are for V1 of the protocol
- */
-static void upload_handler_v1(struct mg_connection *nc, int ev, void *p)
-{
-	struct mg_str *filename, *data;
-	struct http_message *hm;
-	size_t length;
-	char buf[16];
-	int fd;
-
-	switch (ev) {
-	case MG_EV_HTTP_REQUEST:
-		hm = (struct http_message *) p;
-
-		filename = mg_get_http_header(hm, "X_FILENAME");
-		if (filename == NULL) {
-			mg_http_send_error(nc, 403, NULL);
-			return;
-		}
-
-		data = mg_get_http_header(hm, "Content-length");
-		if (data == NULL || data->len >= ARRAY_SIZE(buf)) {
-			mg_http_send_error(nc, 403, NULL);
-			return;
-		}
-
-		memcpy(buf, data->p, data->len);
-		buf[data->len] = '\0';
-		length = strtoul(data->p, NULL, 10);
-		if (length == 0) {
-			mg_http_send_error(nc, 403, NULL);
-			return;
-		}
-
-		fd = ipc_inst_start_ext(SOURCE_WEBSERVER, filename->len, filename->p, false);
-		ipc_send_data(fd, (char *) hm->body.p, hm->body.len);
-		ipc_end(fd);
-
-		mg_send_response_line(nc, 200,
-			"Content-Type: text/plain\r\n"
-			"Connection: close");
-		mg_send(nc, "\r\n", 2);
-		mg_printf(nc, "Ok, %.*s - %d bytes.\r\n", (int) filename->len, filename->p, (int) length);
-		nc->flags |= MG_F_SEND_AND_CLOSE;
-		break;
-	default:
-		upload_handler(nc, ev, p);
-		break;
-	}
-}
-
-static void recovery_status(struct mg_connection *nc, int ev, void *ev_data)
-{
-	ipc_message ipc;
-	int ret;
-	char buf[4096];
-
-	(void)ev;
-	(void)ev_data;
-
-	ret = ipc_get_status(&ipc);
-
-	if (ret) {
-		mg_http_send_error(nc, 500, NULL);
-		return;
-	}
-
-	snprintf(buf, sizeof(buf),
-		"{\r\n"
-		"\t\"Status\" : \"%d\",\r\n"
-		"\t\"Msg\" : \"%s\",\r\n"
-		"\t\"Error\" : \"%d\",\r\n"
-		"\t\"LastResult\" : \"%d\"\r\n"
-		"}\r\n",
-		ipc.data.status.current,
-		strlen(ipc.data.status.desc) ? ipc.data.status.desc : "",
-		ipc.data.status.error,
-		ipc.data.status.last_result);
-
-	mg_send_head(nc, 200, strlen(buf),
-		"Cache: no-cache\r\n"
-		"Content-Type: text/plain");
-
-	mg_send(nc, buf, strlen(buf));
-
-	nc->flags |= MG_F_SEND_AND_CLOSE;
-}
-
-/*
  * Code common to V1 and V2
  */
 static void upload_handler(struct mg_connection *nc, int ev, void *p)
@@ -394,6 +311,18 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 		}
 
 		mp->user_data = fus;
+
+		/*
+		 * There is no user data for connection.
+		 * Set the user data to the same structure to make it available
+		 * to the MG_TIMER event
+		 */
+		nc->user_data = mp->user_data;
+
+		if (watchdog_conn > 0) {
+			TRACE("Setting Webserver Watchdog Timer to %d", watchdog_conn);
+			mg_set_timer(nc, mg_time() + watchdog_conn);
+		}
 
 		break;
 
@@ -426,21 +355,39 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 		nc->flags |= MG_F_SEND_AND_CLOSE;
 
 		mp->user_data = NULL;
+		nc->user_data = mp->user_data;
 		free(fus);
 		break;
 	}
 }
 
-static void ev_handler_v1(struct mg_connection __attribute__ ((__unused__)) *nc,
-				int __attribute__ ((__unused__)) ev,
-				void __attribute__ ((__unused__)) *ev_data)
-{
-}
-
 static void ev_handler(struct mg_connection *nc, int ev, void *ev_data)
 {
-	if (ev == MG_EV_HTTP_REQUEST) {
+	time_t now;
+
+	switch (ev) {
+	case MG_EV_HTTP_REQUEST:
 		mg_serve_http(nc, ev_data, s_http_server_opts);
+		break;
+	case MG_EV_TIMER:
+		now = (time_t) mg_time();
+		/*
+		 * Check if a multi-part was initiated
+		 */
+		if (nc->user_data && (watchdog_conn > 0) &&
+			(difftime(now, nc->last_io_time) > 2 * watchdog_conn)) {
+			struct file_upload_state *fus;
+
+		       /* Connection lost, drop data */
+			ERROR("Connection lost, no data since %ld now %ld, closing...",
+				nc->last_io_time, now);
+			fus = (struct file_upload_state *) nc->user_data;
+			ipc_end(fus->fd);
+			nc->user_data = NULL;
+			nc->flags |= MG_F_CLOSE_IMMEDIATELY;
+		} else
+			mg_set_timer(nc, mg_time() + watchdog_conn);  // Send us timer event again after 0.5 seconds
+		break;
 	}
 }
 
@@ -494,6 +441,8 @@ static int mongoose_settings(void *elem, void  __attribute__ ((__unused__)) *dat
 	}
 	get_field(LIBCFG_PARSER, elem, "run-postupdate", &run_postupdate);
 
+	get_field(LIBCFG_PARSER, elem, "timeout", &watchdog_conn);
+
 	return 0;
 }
 
@@ -508,6 +457,7 @@ static struct option long_options[] = {
 #endif
 	{"document-root", required_argument, NULL, 'r'},
 	{"api-version", required_argument, NULL, 'a'},
+	{"timeout", required_argument, NULL, 't'},
 	{"auth-domain", required_argument, NULL, '0'},
 	{"global-auth-file", required_argument, NULL, '1'},
 	{NULL, 0, NULL, 0}
@@ -526,7 +476,7 @@ void mongoose_print_help(void)
 		"\t  -K, --ssl-key <key>            : key corresponding to the ssl certificate\n"
 #endif
 		"\t  -r, --document-root <path>     : path to document root directory (default: %s)\n"
-		"\t  -a, --api-version [1|2]        : set Web protocol API to v1 (legacy) or v2 (default v2)\n"
+		"\t  -t, --timeout                  : timeout to check if connection is lost (default: check disabled)\n"
 		"\t  --auth-domain                  : set authentication domain if any (default: none)\n"
 		"\t  --global-auth-file             : set authentication file if any (default: none)\n",
 		MG_PORT, MG_ROOT);
@@ -557,12 +507,17 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 	 */
 	run_postupdate = true;
 
+	/*
+	 * Default no monitor of connection
+	 */
+	watchdog_conn = 0;
+
 	if (cfgfname) {
 		read_module_settings(cfgfname, "webserver", mongoose_settings, &opts);
 	}
 
 	optind = 1;
-	while ((choice = getopt_long(argc, argv, "lp:sC:K:r:a:",
+	while ((choice = getopt_long(argc, argv, "lp:sC:K:r:a:t:",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case '0':
@@ -580,6 +535,9 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 			free(opts.port);
 			opts.port = strdup(optarg);
 			break;
+		case 't':
+			watchdog_conn = strtoul(optarg, NULL, 10);
+			break;
 #if MG_ENABLE_SSL
 		case 's':
 			ssl = true;
@@ -596,11 +554,6 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 		case 'r':
 			free(opts.root);
 			opts.root = strdup(optarg);
-			break;
-		case 'a':
-			opts.api_version = (!strcmp(optarg, "1")) ?
-						MONGOOSE_API_V1 :
-						MONGOOSE_API_V2;
 			break;
 		case '?':
 		default:
@@ -627,33 +580,21 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 
 	mg_mgr_init(&mgr, NULL);
 
-	if (opts.api_version == MONGOOSE_API_V1)
-		nc = mg_bind_opt(&mgr, s_http_port, ev_handler_v1, bind_opts);
-	else
-		nc = mg_bind_opt(&mgr, s_http_port, ev_handler, bind_opts);
+	nc = mg_bind_opt(&mgr, s_http_port, ev_handler, bind_opts);
 	if (nc == NULL) {
 		fprintf(stderr, "Failed to start Mongoose: %s\n", *bind_opts.error_string);
 		exit(EXIT_FAILURE);
 	}
 
 	mg_set_protocol_http_websocket(nc);
-	switch (opts.api_version) {
-	case MONGOOSE_API_V1:
-		mg_register_http_endpoint(nc, "/handle_post_request", MG_CB(upload_handler_v1, NULL));
-		mg_register_http_endpoint(nc, "/getstatus.json", MG_CB(recovery_status, NULL));
-		break;
-	case MONGOOSE_API_V2:
-		mg_register_http_endpoint(nc, "/restart", restart_handler);
-		mg_register_http_endpoint(nc, "/upload", MG_CB(upload_handler, NULL));
-		mg_start_thread(broadcast_message_thread, &mgr);
-		mg_start_thread(broadcast_progress_thread, &mgr);
-		break;
-	}
+	mg_register_http_endpoint(nc, "/restart", restart_handler);
+	mg_register_http_endpoint(nc, "/upload", MG_CB(upload_handler, NULL));
+	mg_start_thread(broadcast_message_thread, &mgr);
+	mg_start_thread(broadcast_progress_thread, &mgr);
 
-	printf("Mongoose web server version %s with pid %d started on port(s) %s with web root [%s] and API %s\n",
+	printf("Mongoose web server version %s with pid %d started on port(s) %s with web root [%s]\n",
 		MG_VERSION, getpid(), s_http_port,
-		s_http_server_opts.document_root,
-		(opts.api_version  == MONGOOSE_API_V1) ? "v1" : "v2");
+		s_http_server_opts.document_root);
 
 	for (;;) {
 		mg_mgr_poll(&mgr, 100);

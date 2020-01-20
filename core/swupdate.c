@@ -80,6 +80,7 @@ static struct option long_options[] = {
 	{"dry-run", no_argument, NULL, 'n'},
 	{"no-downgrading", required_argument, NULL, 'N'},
 	{"no-reinstalling", required_argument, NULL, 'R'},
+	{"no-transaction-marker", no_argument, NULL, 'M'},
 #ifdef CONFIG_SIGNED_IMAGES
 	{"key", required_argument, NULL, 'k'},
 	{"ca-path", required_argument, NULL, 'k'},
@@ -107,6 +108,7 @@ static struct option long_options[] = {
 #endif
 	{"check", no_argument, NULL, 'c'},
 	{"postupdate", required_argument, NULL, 'p'},
+	{"preupdate", required_argument, NULL, 'P'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -123,6 +125,7 @@ static void usage(char *programname)
 		" -b, --blacklist <list of mtd>  : MTDs that must not be scanned for UBI\n"
 #endif
 		" -p, --postupdate               : execute post-update command\n"
+		" -P, --preupdate                : execute pre-update command\n"
 		" -e, --select <software>,<mode> : Select software images set and source\n"
 		"                                  Ex.: stable,main\n"
 		" -i, --image <filename>         : Software to be installed\n"
@@ -142,6 +145,7 @@ static void usage(char *programname)
 		" -n, --dry-run                  : run SWUpdate without installing the software\n"
 		" -N, --no-downgrading <version> : not install a release older as <version>\n"
 		" -R, --no-reinstalling <version>: not install a release same as <version>\n"
+		" -M, --no-transaction-marker    : disable setting bootloader transaction marker\n"
 		" -o, --output <output file>     : saves the incoming stream\n"
 		" -v, --verbose                  : be verbose, set maximum loglevel\n"
 		"     --version                  : print SWUpdate version and exit\n"
@@ -362,6 +366,12 @@ static int install_from_file(char *fname, int check)
 		exit(EXIT_SUCCESS);
 	}
 
+	ret = preupdatecmd(&swcfg);
+	if (ret) {
+		ERROR("Failed pre-update command!");
+		exit(EXIT_FAILURE);
+	}
+
 #ifdef CONFIG_MTD
 		mtd_cleanup();
 		scan_mtd_devices();
@@ -505,6 +515,8 @@ static int read_globals_settings(void *elem, void *data)
 				"mtd-blacklist", sw->globals.mtdblacklist);
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
 				"postupdatecmd", sw->globals.postupdatecmd);
+	GET_FIELD_STRING(LIBCFG_PARSER, elem,
+				"preupdatecmd", sw->globals.preupdatecmd);
 	get_field(LIBCFG_PARSER, elem, "verbose", &sw->globals.verbose);
 	get_field(LIBCFG_PARSER, elem, "loglevel", &sw->globals.loglevel);
 	get_field(LIBCFG_PARSER, elem, "syslog", &sw->globals.syslog_enabled);
@@ -608,7 +620,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:l:Lcf:p:o:N:R:");
+	strcpy(main_options, "vhni:e:l:Lcf:p:P:o:N:R:M");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -759,6 +771,10 @@ int main(int argc, char **argv)
 			strncpy(swcfg.globals.current_version, optarg,
 				sizeof(swcfg.globals.current_version));
 			break;
+		case 'M':
+			swcfg.globals.no_transaction_marker = 1;
+			TRACE("transaction_marker globally disabled");
+			break;
 		case 'e':
 			software_select = optarg;
 			opt_e = 1;
@@ -816,6 +832,10 @@ int main(int argc, char **argv)
 		case 'p':
 			strncpy(swcfg.globals.postupdatecmd, optarg,
 				sizeof(swcfg.globals.postupdatecmd));
+			break;
+		case 'P':
+			strncpy(swcfg.globals.preupdatecmd, optarg,
+				sizeof(swcfg.globals.preupdatecmd));
 			break;
 		default:
 			usage(argv[0]);

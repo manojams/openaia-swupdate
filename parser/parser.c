@@ -139,7 +139,7 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 		ERROR("Missing version in configuration file");
 		return false;
 	}
-	
+
 	GET_FIELD_STRING(p, setting, NULL, swcfg->version);
 	TRACE("Version %s", swcfg->version);
 
@@ -148,11 +148,15 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 		TRACE("Description %s", swcfg->description);
 	}
 
-	swcfg->bootloader_transaction_marker = true;
-	if((setting = find_node(p, cfg, "bootloader_transaction_marker", swcfg)) != NULL) {
-		get_field(p, setting, NULL, &swcfg->bootloader_transaction_marker);
-		TRACE("Setting bootloader transaction marker: %s",
-			  swcfg->bootloader_transaction_marker == true ? "true" : "false");
+	if(swcfg->globals.no_transaction_marker) {
+		swcfg->bootloader_transaction_marker = false;
+	} else {
+		swcfg->bootloader_transaction_marker = true;
+		if((setting = find_node(p, cfg, "bootloader_transaction_marker", swcfg)) != NULL) {
+			get_field(p, setting, NULL, &swcfg->bootloader_transaction_marker);
+			TRACE("Setting bootloader transaction marker: %s",
+			      swcfg->bootloader_transaction_marker == true ? "true" : "false");
+		}
 	}
 
 	if ((setting = find_node(p, cfg, "output", swcfg)) != NULL) {
@@ -259,6 +263,7 @@ static int run_embscript(parsertype p, void *elem, struct img_type *img,
 static int parse_common_attributes(parsertype p, void *elem, struct img_type *image)
 {
 	char seek_str[MAX_SEEK_STRING_SIZE];
+	const char* compressed;
 
 	/*
 	 * GET_FIELD_STRING does not touch the passed string if it is not
@@ -286,7 +291,18 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 		return -1;
 	}
 
-	get_field(p, elem, "compressed", &image->compressed);
+	if ((compressed = get_field_string(p, elem, "compressed")) != NULL) {
+		if (!strcmp(compressed, "zlib")) {
+			image->compressed = COMPRESSED_ZLIB;
+		} else if (!strcmp(compressed, "zstd")) {
+			image->compressed = COMPRESSED_ZSTD;
+		} else {
+			ERROR("compressed argument: '%s' unknown", compressed);
+			return -1;
+		}
+	} else {
+		get_field(p, elem, "compressed", &image->compressed);
+	}
 	get_field(p, elem, "installed-directly", &image->install_directly);
 	get_field(p, elem, "preserve-attributes", &image->preserve_attributes);
 	get_field(p, elem, "install-if-different", &image->id.install_if_different);

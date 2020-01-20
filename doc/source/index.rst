@@ -33,12 +33,14 @@ SWUpdate Documentation
    :maxdepth: 2
 
    swupdate.rst
+   scenarios.rst
    sw-description.rst
    signed_images.rst
    encrypted_images.rst
    handlers.rst
    mongoose.rst
    suricatta.rst
+   hawkbit-setup.rst
    swupdate-ipc.rst
    progress.rst
    building-with-yocto.rst
@@ -50,10 +52,11 @@ Utilities and tools
 .. toctree::
    :maxdepth: 2
 
-   client.rst
-   hawkbitcfg.rst
-   sendtohawkbit.rst
-   swupdate_progress.rst
+   swupdate-client.rst
+   swupdate-hawkbitcfg.rst
+   swupdate-sendtohawkbit.rst
+   swupdate-progress.rst
+   swupdate-sysrestart.rst
 
 ############################################
 Help and support
