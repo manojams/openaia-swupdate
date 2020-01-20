@@ -1,3 +1,9 @@
+swupdate (2019.11-1) UNRELEASED; urgency=medium
+
+  * Update to 2019.11-1.
+
+ -- Nobuhiro Iwamatsu <iwamatsu@debian.org>  Mon, 20 Jan 2020 22:07:51 +0900
+
 swupdate (2019.04+git20190903.c3ef374-1~exp1) experimental; urgency=medium
 
   * Snapshot, taken from the master (20190903). (Closes: #907041)
