@@ -7,7 +7,7 @@ Uploaders: SZ Lin (林上智) <szlin@debian.org>,
 Build-Depends: debhelper-compat (= 12),
                dh-exec,
                libconfig9,
-               latexmk,
+               latexmk <!nodoc>,
                libconfig-dev,
                libcurl4-openssl-dev,
                libarchive-dev,
@@ -21,10 +21,10 @@ Build-Depends: debhelper-compat (= 12),
                liburiparser-dev,
                libcmocka-dev,
                pkg-config,
-               python3-sphinx,
-               texlive-latex-recommended,
-               texlive-fonts-recommended,
-               texlive-formats-extra
+               python3-sphinx <!nodoc>,
+               texlive-latex-recommended <!nodoc>,
+               texlive-fonts-recommended <!nodoc>,
+               texlive-formats-extra <!nodoc>
 Standards-Version: 4.3.0
 Rules-Requires-Root: no
 Homepage: http://sbabic.github.io/swupdate
@@ -74,6 +74,7 @@ Description: Development files for swupdate framework
 Package: swupdate-doc
 Section: doc
 Architecture: all
+Build-Profiles: <!nodoc>
 Depends: ${misc:Depends}
 Description: Documentation for swupdate framework
  This package contains the documentation for swupdate.
