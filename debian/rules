@@ -2,6 +2,12 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
+export LUA_VERSION=5.2
+export LUA_MODNAME=lua_swupdate
+export PKG_NAME=swupdate
+export DH_WITH=--with lua
+endif
 
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
@@ -25,4 +31,4 @@ override_dh_missing:
 	dh_missing --fail-missing
 
 %:
-	dh $@
+	dh $@ $(DH_WITH)
