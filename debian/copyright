@@ -2,10 +2,6 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: swupdate
 Upstream-Contact: Stefano Babic <sbabic@denx.de>
 Source: https://github.com/sbabic/swupdate/tree/debian
-Files-Excluded:
-    examples/www/
-Comment: The following files were removed because
-  examples/www/: Remove this directory since it contains minified JavaScript objects
 
 Files:     *
 Copyright: 2014-2019 Stefano Babic <sbabic@denx.de>
