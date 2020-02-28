@@ -2,15 +2,19 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
-
-override_dh_auto_configure:
-ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
-	cp debian/configs/defconfig  configs/debian_defconfig
-	$(MAKE) debian_defconfig
+ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
+export LUA_VERSION=5.2
+export LUA_MODNAME=lua_swupdate
+export PKG_NAME=swupdate
+export DH_WITH=--with lua
 endif
 
-override_dh_auto_build-indep:
-ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
+override_dh_auto_configure:
+	cp debian/configs/defconfig  configs/debian_defconfig
+	$(MAKE) debian_defconfig
+
+override_dh_auto_build:
+ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
 	$(MAKE) man latexpdf
 	mv doc/build/man/client.1 doc/build/man/swupdate-client.1
 	mv doc/build/man/sendtohawkbit.1 doc/build/man/swupdate-sendtohawkbit.1
@@ -18,6 +22,7 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS)))
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
 	mv doc/build/man/sysrestart.1 doc/build/man/swupdate-sysrestart.1
 endif
+	dh_auto_build
 
 override_dh_dwz:
 	dh_dwz --no-dwz-multifile
@@ -26,4 +31,4 @@ override_dh_missing:
 	dh_missing --fail-missing
 
 %:
-	dh $@
+	dh $@ $(DH_WITH)
