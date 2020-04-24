@@ -56,9 +56,8 @@ License:   LGPL-2.1+
 
 Files:     test/Makefile
            test/test_crypt.c
-           suricatta/test/Makefile
-           suricatta/test/test_json.c
-           suricatta/test/test_server_hawkbit.c
+           test/test_json.c
+           test/test_server_hawkbit.c
 Copyright: 2016-2017 Siemens AG, Christian Storm <christian.storm@siemens.com>
 License:   GPL-2+
 
