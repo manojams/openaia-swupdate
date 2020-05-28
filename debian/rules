@@ -10,6 +10,9 @@ endif
 
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
+ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_SWUFORWARDER_HANDLER=y >> configs/debian_defconfig
+endif
 	$(MAKE) debian_defconfig
 
 override_dh_auto_build:
