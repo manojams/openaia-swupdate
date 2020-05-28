@@ -29,5 +29,9 @@ override_dh_dwz:
 override_dh_missing:
 	dh_missing --fail-missing
 
+ifneq (,$(filter nocheck,$(DEB_BUILD_PROFILES)))
+override_dh_auto_test:
+endif
+
 %:
 	dh $@ $(DH_WITH)
