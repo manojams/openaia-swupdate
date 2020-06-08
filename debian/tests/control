@@ -1,2 +1,2 @@
 Test-Command: make test
-Depends: @
+Depends: build-essential
