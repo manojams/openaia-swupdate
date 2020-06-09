@@ -59,10 +59,13 @@ static int read_sw_version_file(struct swupdate_cfg *sw)
 			swcomp = (struct sw_version *)calloc(1, sizeof(struct sw_version));
 			if (!swcomp) {
 				ERROR("Allocation error");
+				fclose(fp);
+				free(name);
+				free(version);
 				return -ENOMEM;
 			}
-			strncpy(swcomp->name, name, sizeof(swcomp->name));
-			strncpy(swcomp->version, version, sizeof(swcomp->version));
+			strlcpy(swcomp->name, name, sizeof(swcomp->name));
+			strlcpy(swcomp->version, version, sizeof(swcomp->version));
 			LIST_INSERT_HEAD(&sw->installed_sw_list, swcomp, next);
 			TRACE("Installed %s: Version %s",
 					swcomp->name,
@@ -159,7 +162,7 @@ void get_sw_versions(char __attribute__ ((__unused__)) *cfgname,
  *
  * but they do not need to have all fields.
  * Also major.minor or major.minor.revision are allowed
- * The conversion genearets a 64 bit value that can be compared
+ * The conversion generates a 64 bit value that can be compared
  */
 __u64 version_to_number(const char *version_string)
 {
@@ -180,7 +183,7 @@ __u64 version_to_number(const char *version_string)
 		}
 		free(*ver);
 	}
-	if (count < 4)
+	if ((count < 4) && (count > 0))
 		version <<= 16 * (4 - count);
 	free(versions);
 

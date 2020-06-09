@@ -55,7 +55,7 @@ struct hnd_priv {
 static size_t curl_read_data(char *buffer, size_t size, size_t nmemb, void *userp)
 {
 	struct curlconn *conn = (struct curlconn *)userp;
-	size_t nbytes;
+	ssize_t nbytes;
 
 	if (!nmemb)
 		return 0;
@@ -94,7 +94,7 @@ static size_t curl_read_data(char *buffer, size_t size, size_t nmemb, void *user
 static int swu_forward_data(void *data, const void *buf, unsigned int len)
 {
 	struct hnd_priv *priv = (struct hnd_priv *)data;
-	size_t written;
+	ssize_t written;
 	struct curlconn *conn;
 	int index = 0;
 
@@ -282,7 +282,7 @@ static int install_remote_swu(struct img_type *img,
 	void __attribute__ ((__unused__)) *data)
 {
 	struct hnd_priv priv;
-	struct curlconn *conn;
+	struct curlconn *conn, *tmp;
 	int ret;
 	struct dict_list_elem *url;
 	struct dict_list *urls;
@@ -342,6 +342,8 @@ static int install_remote_swu(struct img_type *img,
 		conn->total_bytes = img->size;
 		conn->SWUpdateStatus = IDLE;
 
+		LIST_INSERT_HEAD(&priv.conns, conn, next);
+
 		/*
 		 * Create one FIFO for each connection to be thread safe
 		 */
@@ -362,7 +364,6 @@ static int install_remote_swu(struct img_type *img,
 			ret = FAILURE;
 			goto handler_exit;
 		}
-		LIST_INSERT_HEAD(&priv.conns, conn, next);
 
 		index++;
 	}
@@ -400,7 +401,7 @@ static int install_remote_swu(struct img_type *img,
 	}
 
 handler_exit:
-	LIST_FOREACH(conn, &priv.conns, next) {
+	LIST_FOREACH_SAFE(conn, &priv.conns, next, tmp) {
 		index = 0;
 		LIST_REMOVE(conn, next);
 		swuforward_ws_free(conn);

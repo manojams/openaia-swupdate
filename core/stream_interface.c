@@ -99,7 +99,7 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs)
 	if (fdout < 0)
 		return -1;
 
-	if (copyfile(fd, &fdout, fdh.size, poffs, 0, 0, 0, &checksum, NULL, 0, NULL) < 0) {
+	if (copyfile(fd, &fdout, fdh.size, poffs, 0, 0, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
 		close(fdout);
 		return -1;
 	}
@@ -162,6 +162,9 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				ERROR("SW not compatible with hardware");
 				return -1;
 			}
+			if (preupdatecmd(software)) {
+				return -1;
+			}
 			status = STREAM_DATA;
 			break;
 
@@ -171,6 +174,12 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				return -1;
 			}
 			if (strcmp("TRAILER!!!", fdh.filename) == 0) {
+ 				/*
+			 	 * Keep reading the cpio padding, if any, up
+				 * to 512 bytes from the socket until the
+				 * client stops writing
+			 	 */
+				extract_padding(fd, &offset);
 				status = STREAM_END;
 				break;
 			}
@@ -205,7 +214,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				fdout = openfileoutput(img->extract_file);
 				if (fdout < 0)
 					return -1;
-				if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, img->sha256, 0, NULL) < 0) {
+				if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, img->sha256, 0, NULL, NULL) < 0) {
 					close(fdout);
 					return -1;
 				}
@@ -219,7 +228,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				break;
 
 			case SKIP_FILE:
-				if (copyfile(fd, &fdout, fdh.size, &offset, 0, skip, 0, &checksum, NULL, 0, NULL) < 0) {
+				if (copyfile(fd, &fdout, fdh.size, &offset, 0, skip, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
 					return -1;
 				}
 				if (checksum != (unsigned long)fdh.chksum) {
@@ -248,8 +257,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				 * sure that the UBI partitions are adjusted beforehand
 				 */
 				LIST_FOREACH(part, &software->images, next) {
-					if ( (!part->install_directly)
-						&& (!strcmp(part->type, "ubipartition")) ) {
+					if (!part->install_directly && part->is_partitioner) {
 						TRACE("Need to adjust partition %s before streaming %s",
 							part->volname, img->fname);
 						if (install_single_image(part, software->globals.dry_run)) {
@@ -352,6 +360,9 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 	char output_file[MAX_IMAGE_FNAME];
 	const char* TMPDIR = get_tmpdir();
 
+	if (fdin < 0)
+		return -EINVAL;
+
 	snprintf(tmpfilename, sizeof(tmpfilename), "%s/%s", TMPDIR, SW_TMP_OUTPUT);
 
 	buf = (unsigned char *)malloc(bufsize);
@@ -361,7 +372,7 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 	}
 
 	/*
-	 * Cache the beginnining of the SWU to parse
+	 * Cache the beginning of the SWU to parse
 	 * sw-description and check if the output must be
 	 * redirected. This allows to define the output file on demand
 	 * setting it into sw-description.
@@ -373,6 +384,11 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 		goto no_copy_output;
 	}
 	len = read(fdin, buf, bufsize);
+	if (len < 0) {
+		ERROR("Reading from file failed, error %d", errno);
+		ret = -EFAULT;
+		goto no_copy_output;
+	}
 	if (get_cpiohdr(buf, &fdh.size, &fdh.namesize, &fdh.chksum) < 0) {
 		ERROR("CPIO Header corrupted, cannot be parsed");
 		ret = -EINVAL;
@@ -447,9 +463,9 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 
 no_copy_output:
 	free(buf);
-	if (fdout > 0)
+	if (fdout >= 0)
 		close(fdout);
-	if (tmpfd > 0) {
+	if (tmpfd >= 0) {
 		close(tmpfd);
 		unlink(tmpfilename);
 	}
@@ -506,7 +522,8 @@ void *network_initializer(void *data)
 			 * now replace the file descriptor with
 			 * the saved file
 			 */
-			close(inst.fd);
+			if (!(inst.fd < 0))
+				close(inst.fd);
 			inst.fd = open(software->output, O_RDONLY,  S_IRUSR);
 		}
 
@@ -521,11 +538,8 @@ void *network_initializer(void *data)
 		 	 */
 			ret = extract_files(inst.fd, software);
 		}
-		close(inst.fd);
-
-		if (ret == 0) {
-			ret = preupdatecmd(software);
-		}
+		if (!(inst.fd < 0))
+			close(inst.fd);
 
 		/* do carry out the installation (flash programming) */
 		if (ret == 0) {
@@ -594,4 +608,3 @@ int get_install_info(sourcetype *source, char *buf, size_t len)
 
 	return len;
 }
-

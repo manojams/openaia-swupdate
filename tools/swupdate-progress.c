@@ -64,6 +64,7 @@ static struct option long_options[] = {
 	{"wait", no_argument, NULL, 'w'},
 	{"color", no_argument, NULL, 'c'},
 	{"socket", required_argument, NULL, 's'},
+	{"exec", required_argument, NULL, 'e'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -74,6 +75,7 @@ static void usage(char *programname)
 			programname);
 	fprintf(stdout,
 		" -c, --color             : Use colors to show results\n"
+		" -e, --exec <script>     : call the script with the result of update\n"
 		" -r, --reboot            : reboot after a successful update\n"
 		" -w, --wait              : wait for a connection with SWUpdate\n"
 		" -p, --psplash           : send info to the psplash process\n"
@@ -102,6 +104,8 @@ static int psplash_init(char *pipe)
 			}
 		}
 	}
+
+	close(psplash_pipe_fd);
 
 	return 1;
 }
@@ -182,10 +186,12 @@ int main(int argc, char **argv)
 	int opt_r = 0;
 	int opt_p = 0;
 	int c;
+	int ret;
+	char *script = NULL;
 	RECOVERY_STATUS	status = IDLE;		/* Update Status (Running, Failure) */
 
 	/* Process options with getopt */
-	while ((c = getopt_long(argc, argv, "cwprhs:",
+	while ((c = getopt_long(argc, argv, "cwprhs:e:",
 				long_options, NULL)) != EOF) {
 		switch (c) {
 		case 'c':
@@ -202,6 +208,9 @@ int main(int argc, char **argv)
 			break;
 		case 's':
 			SOCKET_PROGRESS_PATH = strdup(optarg);
+			break;
+		case 'e':
+			script = strdup(optarg);
 			break;
 		case 'h':
 			usage(argv[0]);
@@ -224,6 +233,14 @@ int main(int argc, char **argv)
 	while (1) {
 		if (connfd < 0) {
 			connfd = progress_ipc_connect(opt_w);
+		}
+
+		/*
+		 * if still fails, try later
+		 */
+		if (connfd < 0) {
+			sleep(1);
+			continue;
 		}
 
 		if (progress_ipc_receive(&connfd, &msg) == -1) {
@@ -256,8 +273,17 @@ int main(int argc, char **argv)
 
 		}
 
-		if (msg.infolen > 0)
+		/*
+		 * Be sure that string in message are Null terminated
+		 */
+		if (msg.infolen > 0) {
+			if (msg.infolen >= sizeof(msg.info) - 1) {
+				msg.infolen = sizeof(msg.info) - 1;
+				msg.info[sizeof(msg.info) - 1] = '\0';
+			}
 			fprintf(stdout, "INFO : %s\n\n", msg.info);
+		}
+		msg.cur_image[sizeof(msg.cur_image) - 1] = '\0';
 
 		if (!psplash_ok && opt_p) {
 			psplash_ok = psplash_init(psplash_pipe_path);
@@ -267,11 +293,11 @@ int main(int argc, char **argv)
 			fprintf(stdout, "\n");
 
 		filled_len = sizeof(bar) * msg.cur_percent / 100;
-		if (filled_len > sizeof(bar))
-			filled_len = sizeof(bar);
+		if (filled_len > sizeof(bar) - 1)
+			filled_len = sizeof(bar) - 1;
 
 		memset(bar,'=', filled_len);
-		memset(&bar[filled_len], '-', sizeof(bar) - filled_len);
+		memset(&bar[filled_len], '-', sizeof(bar) - filled_len - 1);
 
 		fprintf(stdout, "[ %.60s ] %d of %d %d%% (%s)\r",
 			bar,
@@ -299,11 +325,25 @@ int main(int argc, char **argv)
 			fprintf(stdout, "%s !\n", msg.status == SUCCESS
 							  ? "SUCCESS"
 							  : "FAILURE");
+			if (script) {
+				char *cmd;
+				if (asprintf(&cmd, "%s %s", script,
+						msg.status == SUCCESS ?
+						"SUCCESS" : "FAILURE") == -1) {
+					fprintf(stderr, "OOM calling post-exec script\n");
+				} else {
+					ret = system(cmd);
+					if (ret) {
+						fprintf(stdout, "Executed %s with error : %d\n", cmd, ret);
+					}
+					free(cmd);
+				}
+			}
 			resetterm();
 			if (psplash_ok)
 				psplash_progress(psplash_pipe_path, &msg);
 			psplash_ok = 0;
-			if ((msg.status == SUCCESS) && opt_r) {
+			if ((msg.status == SUCCESS) && (msg.cur_step > 0) && opt_r) {
 				sleep(5);
 				if (system("reboot") < 0) { /* It should never happen */
 					fprintf(stdout, "Please reset the board.\n");

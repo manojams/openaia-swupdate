@@ -58,6 +58,7 @@ struct mongoose_options {
 struct file_upload_state {
 	size_t len;
 	int fd;
+	bool error_report; /* if set, stop to flood with errors */
 };
 
 static bool run_postupdate;
@@ -103,30 +104,6 @@ static const char *get_source_string(unsigned int source)
 		return "UNKNOWN";
 
 	return str[source];
-}
-
-/* Write escaped output to sized buffer */
-static size_t snescape(char *dst, size_t n, const char *src)
-{
-	size_t len = 0;
-
-	if (n < 3)
-		return 0;
-
-	memset(dst, 0, n);
-
-	for (int i = 0; src[i] != '\0'; i++) {
-		if (src[i] == '\\' || src[i] == '\"') {
-			if (len < n - 2)
-				dst[len] = '\\';
-			len++;
-		}
-		if (len < n - 1)
-			dst[len] = src[i];
-		len++;
-	}
-
-	return len;
 }
 
 static void restart_handler(struct mg_connection *nc, int ev, void *ev_data)
@@ -216,6 +193,13 @@ static void *broadcast_progress_thread(void *data)
 
 		if (fd < 0)
 			fd = progress_ipc_connect(true);
+		/*
+		 * if still fails, try later
+		 */
+		if (fd < 0) {
+			sleep(1);
+			continue;
+		}
 
 		ret = progress_ipc_receive(&fd, &msg);
 		if (ret != sizeof(msg))
@@ -292,6 +276,7 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 {
 	struct mg_http_multipart_part *mp;
 	struct file_upload_state *fus;
+	ssize_t written;
 
 	switch (ev) {
 	case MG_EV_HTTP_PART_BEGIN:
@@ -308,6 +293,10 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 			mg_http_send_error(nc, 500, "Failed to queue command");
 			free(fus);
 			break;
+		}
+
+		if (swupdate_file_setnonblock(fus->fd, true)) {
+			WARN("IPC cannot be set in non-blocking, fallback to block mode");
 		}
 
 		mp->user_data = fus;
@@ -333,8 +322,25 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 		if (!fus)
 			break;
 
-		ipc_send_data(fus->fd, (char *) mp->data.p, mp->data.len);
-		fus->len += mp->data.len;
+		written = write(fus->fd, (char *) mp->data.p, mp->data.len);
+		/*
+		 * IPC seems to block, wait for a while
+		 */
+		if (written != mp->data.len) {
+			if (errno != EAGAIN && errno != EWOULDBLOCK) {
+				if (!fus->error_report) {
+					ERROR("Writing to IPC fails due to %s", strerror(errno));
+					fus->error_report = true;
+				}
+			}
+			usleep(100);
+
+			if (written < 0)
+				written = 0;
+		}
+
+		mp->num_data_consumed = written;
+		fus->len += written;
 
 		break;
 
@@ -375,7 +381,7 @@ static void ev_handler(struct mg_connection *nc, int ev, void *ev_data)
 		 * Check if a multi-part was initiated
 		 */
 		if (nc->user_data && (watchdog_conn > 0) &&
-			(difftime(now, nc->last_io_time) > 2 * watchdog_conn)) {
+			(difftime(now, nc->last_io_time) > watchdog_conn)) {
 			struct file_upload_state *fus;
 
 		       /* Connection lost, drop data */
@@ -586,6 +592,15 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	/*
+	 * The Event Handler in Webserver will read from socket until there is data.
+	 * This does not guarantes a flow control because data are forwarded
+	 * to SWUpdate internal IPC. If this is not called in blocking mode,
+	 * the Webserver should just read from socket to fill the IPC, but without
+	 * filling all memory.
+	 */
+	nc->recv_mbuf_limit = 256 * 1024;
+
 	mg_set_protocol_http_websocket(nc);
 	mg_register_http_endpoint(nc, "/restart", restart_handler);
 	mg_register_http_endpoint(nc, "/upload", MG_CB(upload_handler, NULL));
@@ -603,3 +618,10 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 
 	return 0;
 }
+
+#if MG_ENABLE_SSL && MG_SSL_IF == MG_SSL_IF_MBEDTLS
+#include <mbedtls/ctr_drbg.h>
+int mg_ssl_if_mbed_random(void *ctx, unsigned char *buf, size_t len) {
+	return mbedtls_ctr_drbg_random(ctx, buf, len);
+}
+#endif

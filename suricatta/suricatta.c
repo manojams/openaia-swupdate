@@ -13,13 +13,99 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/select.h>
+#include <getopt.h>
+#include <json-c/json.h>
 #include "pctl.h"
 #include "suricatta/suricatta.h"
 #include "suricatta/server.h"
+#include "suricatta_private.h"
+#include "parselib.h"
+#include "swupdate_settings.h"
+#include <network_ipc.h>
+
+static bool enable = true;
+static struct option long_options[] = {
+    {"enable", no_argument, NULL, 'e'},
+    {"disable", no_argument, NULL, 'd'},
+    {NULL, 0, NULL, 0}};
 
 void suricatta_print_help(void)
 {
+	fprintf(
+	    stderr,
+	    "\tsuricatta arguments (mandatory arguments are marked with '*'):\n"
+	    "\t  -e, --enable      Daemon enabled at startup (default).\n"
+	    "\t  -d, --disable     Daemon disabled at startup.\n"
+	    );
 	server.help();
+}
+
+static server_op_res_t suricatta_enable(ipc_message *msg)
+{
+	struct json_object *json_root;
+	json_object *json_data;
+
+	json_root = server_tokenize_msg(msg->data.instmsg.buf,
+					sizeof(msg->data.instmsg.buf));
+	if (!json_root) {
+		msg->type = NACK;
+		ERROR("Wrong JSON message, see documentation");
+		return SERVER_EERR;
+	}
+
+	json_data = json_get_path_key(
+	    json_root, (const char *[]){"enable", NULL});
+	if (json_data) {
+		enable = json_object_get_boolean(json_data);
+		TRACE ("suricatta mode %sabled", enable ? "en" : "dis");
+	}
+
+	msg->type = ACK;
+
+	return SERVER_OK;
+}
+
+static server_op_res_t suricatta_ipc(int fd, time_t *seconds)
+{
+	ipc_message msg;
+	server_op_res_t result = SERVER_OK;
+	int ret;
+
+	ret = read(fd, &msg, sizeof(msg));
+	if (ret != sizeof(msg))
+		return SERVER_EERR;
+
+	switch (msg.data.instmsg.cmd) {
+	case CMD_ENABLE:
+		result = suricatta_enable(&msg);
+		/*
+		 * Note: enable works as trigger, too.
+		 * After enable is set, suricatta will try to contact
+		 * the server to check for pending action
+		 * This is done by resetting the number of seconds to
+		 * wait for.
+		 */
+		*seconds = 0;
+		break;
+	default:
+		result = server.ipc(&msg);
+		break;
+	}
+
+	if (write(fd, &msg, sizeof(msg)) != sizeof(msg)) {
+		TRACE("IPC ERROR: sending back msg");
+	}
+
+	/* Send ipc back */
+	return result;
+}
+
+static int suricatta_settings(void *elem, void  __attribute__ ((__unused__)) *data)
+{
+	get_field(LIBCFG_PARSER, elem, "enable",
+		&enable);
+
+	return 0;
 }
 
 int suricatta_wait(int seconds)
@@ -40,7 +126,7 @@ int suricatta_wait(int seconds)
 	}
 	if (retval && FD_ISSET(sw_sockfd, &readfds)) {
 		TRACE("Suricatta woke up for IPC at %ld seconds", tv.tv_sec);
-		if (server.ipc(sw_sockfd) != SERVER_OK){
+		if (suricatta_ipc(sw_sockfd, &tv.tv_sec) != SERVER_OK){
 			DEBUG("Handling IPC failed!");
 		}
 		return (int)tv.tv_sec;
@@ -53,31 +139,77 @@ int start_suricatta(const char *cfgfname, int argc, char *argv[])
 	int action_id;
 	sigset_t sigpipe_mask;
 	sigset_t saved_mask;
+	int choice = 0;
+	char **serverargv;
 
 	sigemptyset(&sigpipe_mask);
 	sigaddset(&sigpipe_mask, SIGPIPE);
 	sigprocmask(SIG_BLOCK, &sigpipe_mask, &saved_mask);
 
-	if (server.start(cfgfname, argc, argv) != SERVER_OK) {
+	/*
+	 * Temporary copy the command line argument
+	 * to pass unchanged to the server instance.
+	 * getopt() will change them when called here
+	 */
+	serverargv = (char **)malloc(argc * sizeof(char **));
+	if (!serverargv) {
+		ERROR("OOM starting suricatta, exiting !");
 		exit(EXIT_FAILURE);
 	}
+	for (int i = 0; i < argc; i++) {
+		serverargv[i] = argv[i];
+	}
+
+	/*
+	 * First check for common properties that do not depend
+	 * from server implementation
+	 */
+	if (cfgfname)
+		read_module_settings(cfgfname, "suricatta", suricatta_settings,
+					NULL);
+	optind = 1;
+	opterr = 0;
+
+	while ((choice = getopt_long(argc, argv, "de",
+				     long_options, NULL)) != -1) {
+		switch (choice) {
+		case 'e':
+			enable = true;
+			break;
+		case 'd':
+			enable = false;
+			break;
+		case '?':
+			break;
+		}
+	}
+
+	/*
+	 * Now start a specific implementation of the server
+	 */
+	if (server.start(cfgfname, argc, serverargv) != SERVER_OK) {
+		exit(EXIT_FAILURE);
+	}
+	free(serverargv);
 
 	TRACE("Server initialized, entering suricatta main loop.");
 	while (true) {
-		switch (server.has_pending_action(&action_id)) {
-		case SERVER_UPDATE_AVAILABLE:
-			DEBUG("About to process available update.");
-			server.install_update();
-			break;
-		case SERVER_ID_REQUESTED:
-			server.send_target_data();
-			break;
-		case SERVER_EINIT:
-			break;
-		case SERVER_OK:
-		default:
-			DEBUG("No pending action to process.");
-			break;
+		if (enable) {
+			switch (server.has_pending_action(&action_id)) {
+			case SERVER_UPDATE_AVAILABLE:
+				DEBUG("About to process available update.");
+				server.install_update();
+				break;
+			case SERVER_ID_REQUESTED:
+				server.send_target_data();
+				break;
+			case SERVER_EINIT:
+				break;
+			case SERVER_OK:
+			default:
+				DEBUG("No pending action to process.");
+				break;
+			}
 		}
 
 		for (int wait_seconds = server.get_polling_interval();

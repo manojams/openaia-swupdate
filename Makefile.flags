@@ -150,7 +150,7 @@ LDLIBS += crypto ssl
 endif
 
 ifeq ($(CONFIG_SSL_IMPL_MBEDTLS),y)
-LDLIBS += mbedcrypto mbedtls
+LDLIBS += mbedcrypto mbedtls mbedx509
 endif
 
 # MTD
@@ -164,6 +164,10 @@ endif
 
 ifeq ($(CONFIG_ZSTD),y)
 LDLIBS += zstd
+endif
+
+ifeq ($(CONFIG_DISKPART),y)
+LDLIBS += fdisk
 endif
 
 ifeq ($(CONFIG_RDIFFHANDLER),y)
