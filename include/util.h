@@ -9,6 +9,7 @@
 #define _UTIL_H
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #if defined(__linux__)
 #include <linux/types.h>
@@ -139,6 +140,7 @@ typedef void (*notifier) (RECOVERY_STATUS status, int error, int level, const ch
 uintmax_t
 from_ascii (char const *where, size_t digs, unsigned logbase);
 int ascii_to_hash(unsigned char *hash, const char *s);
+int ascii_to_bin(unsigned char *hash, const char *s, size_t len);
 void hash_to_ascii(const unsigned char *hash, char *s);
 int IsValidHash(const unsigned char *hash);
 
@@ -167,16 +169,22 @@ int copy_write(void *out, const void *buf, unsigned int len);
 #if defined(__FreeBSD__)
 int copy_write_padded(void *out, const void *buf, unsigned int len);
 #endif
+#if defined(__linux__)
+/* strlcpy was originally developped in FreeBSD, not present in glibc */
+size_t
+strlcpy(char *dst, const char * src, size_t size);
+#endif
 int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
 	unsigned long long seek,
 	int skip_file, int compressed, uint32_t *checksum,
-	unsigned char *hash, int encrypted, writeimage callback);
+	unsigned char *hash, int encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
 int extract_sw_description(int fd, const char *descfile, off_t *offs);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
-			int encrypted, unsigned char *hash);
+			int encrypted, char *ivt, unsigned char *hash);
 int openfileoutput(const char *filename);
 int mkpath(char *dir, mode_t mode);
+int swupdate_file_setnonblock(int fd, bool block);
 
 int register_notifier(notifier client);
 void notify(RECOVERY_STATUS status, int error, int level, const char *msg);
@@ -187,6 +195,7 @@ char **splitargs(char *args, int *argc);
 char *mstrcat(const char **nodes, const char *delim);
 char** string_split(const char* a_str, const char a_delim);
 char *substring(const char *src, int first, int len);
+size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
 int get_hw_revision(struct hw_type *hw);
 void get_sw_versions(char *cfgfname, struct swupdate_cfg *sw);
@@ -201,6 +210,8 @@ void free_string_array(char **nodes);
 int load_decryption_key(char *fname);
 unsigned char *get_aes_key(void);
 unsigned char *get_aes_ivt(void);
+int set_aes_key(const char *key, const char *ivt);
+int set_aes_ivt(const char *ivt);
 
 /* Getting global information */
 int get_install_info(sourcetype *source, char *buf, size_t len);

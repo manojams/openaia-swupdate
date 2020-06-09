@@ -9,6 +9,7 @@
 #ifndef _IPC_H
 #define _IPC_H
 
+#include <stdlib.h>
 #include <stdbool.h>
 #include "swupdate_status.h"
 
@@ -32,11 +33,17 @@ typedef enum {
 	POST_UPDATE,
 	SWUPDATE_SUBPROCESS,
 	REQ_INSTALL_DRYRUN,
+	SET_AES_KEY
 } msgtype;
 
+/*
+ * Commands are used for IPC to subprocesses. The meaning is then interpreted
+ * by the single subprocess
+ */
 enum {
-	CMD_ACTIVATION,
-	CMD_CONFIG
+	CMD_ACTIVATION,	/* this returns the answer if a SW can be activated */
+	CMD_CONFIG,
+	CMD_ENABLE	/* Enable or disable suricatta mode */
 };
 
 typedef union {
@@ -57,6 +64,10 @@ typedef union {
 				      * with additional information
 				      */
 	} instmsg;
+	struct {
+		char key_ascii[65]; /* Key size in ASCII (256 bit, 32 bytes bin) + termination */
+		char ivt_ascii[33]; /* Key size in ASCII (16 bytes bin) + termination */
+	} aeskeymsg;
 } msgdata;
 	
 typedef struct {
@@ -71,6 +82,7 @@ int ipc_inst_start_ext(sourcetype source, size_t len, const char *info, bool dry
 int ipc_send_data(int connfd, char *buf, int size);
 void ipc_end(int connfd);
 int ipc_get_status(ipc_message *msg);
+int ipc_get_status_timeout(ipc_message *msg, unsigned int timeout_ms);
 int ipc_postupdate(ipc_message *msg);
 int ipc_send_cmd(ipc_message *msg);
 

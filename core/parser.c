@@ -198,9 +198,9 @@ static int is_image_higher(struct swver *sw_ver_list,
 static void remove_installed_image_list(struct imglist *img_list,
 				struct swver *sw_ver_list)
 {
-	struct img_type *img;
+	struct img_type *img, *tmp;
 
-	LIST_FOREACH(img, img_list, next) {
+	LIST_FOREACH_SAFE(img, img_list, next, tmp) {
 		if (is_image_installed(sw_ver_list, img)) {
 			LIST_REMOVE(img, next);
 			free_image(img);
@@ -214,9 +214,9 @@ static void remove_installed_image_list(struct imglist *img_list,
 static void remove_higher_image_list(struct imglist *img_list,
 				struct swver *sw_ver_list)
 {
-	struct img_type *img;
+	struct img_type *img, *tmp;
 
-	LIST_FOREACH(img, img_list, next) {
+	LIST_FOREACH_SAFE(img, img_list, next, tmp) {
 		if (is_image_higher(sw_ver_list, img)) {
 			LIST_REMOVE(img, next);
 			free_image(img);
@@ -338,6 +338,15 @@ int parse(struct swupdate_cfg *sw, const char *descfile)
 	 * to initialize the progress bar
 	 */
 	swupdate_progress_init(count_elem_list(&sw->images));
+
+	/*
+	 * Send the version string as first message to progress interface
+	 */
+	char *versioninfo;
+	if (asprintf(&versioninfo, "VERSION : %s", sw->version) == ENOMEM_ASPRINTF)
+		ERROR("OOM sending version info");
+	else
+		swupdate_progress_info(RUN, 0, versioninfo);
 
 	return ret;
 }

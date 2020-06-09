@@ -232,7 +232,7 @@ static int parse_hw_compatibility(parsertype p, void *cfg, struct swupdate_cfg *
 			return -1;
 		}
 
-		strncpy(hwrev->revision, s, sizeof(hwrev->revision));
+		strlcpy(hwrev->revision, s, sizeof(hwrev->revision));
 		LIST_INSERT_HEAD(&swcfg->hardware, hwrev, next);
 		TRACE("Accepted Hw Revision : %s", hwrev->revision);
 	}
@@ -308,6 +308,7 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 	get_field(p, elem, "install-if-different", &image->id.install_if_different);
 	get_field(p, elem, "install-if-higher", &image->id.install_if_higher);
 	get_field(p, elem, "encrypted", &image->is_encrypted);
+	GET_FIELD_STRING(p, elem, "ivt", image->ivt_ascii);
 
 	return 0;
 }
@@ -346,12 +347,13 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 		GET_FIELD_STRING(p, elem, "name", partition->volname);
 
 		if (!strlen(partition->type))
-			strncpy(partition->type, "ubipartition", sizeof(partition->type));
+			strlcpy(partition->type, "ubipartition", sizeof(partition->type));
 		partition->is_partitioner = 1;
 
 		partition->provided = 1;
 
-		if (!strlen(partition->volname) || !strlen(partition->device)) {
+		if ((!strlen(partition->volname) && !strcmp(partition->type, "ubipartition")) ||
+				!strlen(partition->device)) {
 			ERROR("Partition incompleted in description file");
 			free_image(partition);
 			return -1;
@@ -359,8 +361,10 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 
 		get_field(p, elem, "size", &partition->partsize);
 
+		add_properties(p, elem, partition);
+
 		TRACE("Partition: %s new size %lld bytes",
-			partition->volname,
+			!strcmp(partition->type, "ubipartition") ? partition->volname : partition->device,
 			partition->partsize);
 
 		LIST_INSERT_HEAD(&swcfg->images, partition, next);
@@ -443,8 +447,6 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg,
 	struct img_type *script;
 	struct img_type dummy;
 
-	memset(&dummy, 0, sizeof(dummy));
-
 	setting = find_node(p, cfg, "uboot", swcfg);
 
 	if (setting == NULL) {
@@ -459,6 +461,8 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg,
 
 		if (!elem)
 			continue;
+
+		memset(&dummy, 0, sizeof(dummy));
 
 		/*
 		 * Check for mandatory field

@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
 	memset(&msg, 0, sizeof(msg));
 	msg.data.instmsg.source = SOURCE_SURICATTA;
 	msg.data.instmsg.cmd = CMD_ACTIVATION;
+	msg.type = SWUPDATE_SUBPROCESS;
 
 	size = sizeof(msg.data.instmsg.buf);
 	buf = msg.data.instmsg.buf;
@@ -91,6 +92,7 @@ int main(int argc, char *argv[]) {
 		written = snprintf(buf, size, "}");
 
 	fprintf(stdout, "Sending: '%s'", msg.data.instmsg.buf);
+	msg.data.instmsg.len = strnlen(buf, size);
 
 	rc = ipc_send_cmd(&msg);
 

@@ -123,17 +123,21 @@ int listener_create(const char *path, int type)
 	if (listenfd == -1) {
 		TRACE("creating socket at %s", path);
 		listenfd = socket(AF_LOCAL, type, 0);
+		if (listenfd < 0) {
+			return -1;
+		}
 		unlink(path);
 		bzero(&servaddr, sizeof(servaddr));
 		servaddr.sun_family = AF_LOCAL;
-		strcpy(servaddr.sun_path, path);
+		strlcpy(servaddr.sun_path, path, sizeof(servaddr.sun_path) - 1);
 
 		if (bind(listenfd,  (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
 			close(listenfd);
 			return -1;
 		}
 
-		chmod(path,  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+		if (chmod(path,  S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) < 0)
+			WARN("chmod cannot be set on socket, error %s", strerror(errno));
 	}
 
 	if (type == SOCK_STREAM)
@@ -142,7 +146,6 @@ int listener_create(const char *path, int type)
 			return -1;
 		}
 	return listenfd;
-
 }
 
 static void cleanum_msg_list(void)
@@ -272,7 +275,7 @@ void *network_thread (void *data)
 				 *  forward the request without checking
 				 *  the payload
 				 */
-			       
+
 				pipe = pctl_getfd_from_type(msg.data.instmsg.source);
 				if (pipe < 0) {
 					ERROR("Cannot find channel for requested process");
@@ -396,6 +399,11 @@ void *network_thread (void *data)
 				pthread_mutex_unlock(&msglock);
 
 				break;
+			case SET_AES_KEY:
+				msg.type = ACK;
+				if (set_aes_key(msg.data.aeskeymsg.key_ascii, msg.data.aeskeymsg.ivt_ascii))
+					msg.type = NACK;
+				break;
 			default:
 				msg.type = NACK;
 			}
@@ -412,5 +420,5 @@ void *network_thread (void *data)
 			close(ctrlconnfd);
 		pthread_mutex_unlock(&stream_mutex);
 	} while (1);
-	return (void *)0; 
+	return (void *)0;
 }

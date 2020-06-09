@@ -307,44 +307,46 @@ static int resize_volume(struct img_type *cfg, long long size)
 		free(ubivol);
 	}
 
-	/* We do not need a volume to get the right node */
-	snprintf(node, sizeof(node), "/dev/ubi%d", mtd_info->dev_info.dev_num);
+	if (size) {
+		/* We do not need a volume to get the right node */
+		snprintf(node, sizeof(node), "/dev/ubi%d", mtd_info->dev_info.dev_num);
 
-	/*
-	 * Creates all other partitions as specified in the description file
-	 * Volumes are empty, and they are filled later by the update procedure
-	 */
-	memset(&req, 0, sizeof(req));
-	req.vol_type = req_vol_type;
-	req.vol_id = UBI_VOL_NUM_AUTO;
-	req.alignment = 1;
-	req.bytes = size;
-	req.name = cfg->volname;
-	err = ubi_mkvol(nandubi->libubi, node, &req);
-	if (err < 0) {
-		ERROR("cannot create %s UBI volume %s of %lld bytes",
-		      (req_vol_type == UBI_DYNAMIC_VOLUME) ? "dynamic" : "static",
-			req.name, req.bytes);
-		return err;
-	}
+		/*
+		 * Creates all other partitions as specified in the description file
+		 * Volumes are empty, and they are filled later by the update procedure
+		 */
+		memset(&req, 0, sizeof(req));
+		req.vol_type = req_vol_type;
+		req.vol_id = UBI_VOL_NUM_AUTO;
+		req.alignment = 1;
+		req.bytes = size;
+		req.name = cfg->volname;
+		err = ubi_mkvol(nandubi->libubi, node, &req);
+		if (err < 0) {
+			ERROR("cannot create %s UBI volume %s of %lld bytes",
+				  (req_vol_type == UBI_DYNAMIC_VOLUME) ? "dynamic" : "static",
+				req.name, req.bytes);
+			return err;
+		}
 
-	ubivol = (struct ubi_part *)calloc(1, sizeof(struct ubi_part));
-	if (!ubivol) {
-		ERROR("No memory: malloc failed");
-		return -ENOMEM;
+		ubivol = (struct ubi_part *)calloc(1, sizeof(struct ubi_part));
+		if (!ubivol) {
+			ERROR("No memory: malloc failed");
+			return -ENOMEM;
+		}
+		err = ubi_get_vol_info1(nandubi->libubi,
+			mtd_info->dev_info.dev_num, req.vol_id,
+			&ubivol->vol_info);
+		if (err) {
+			ERROR("cannot get information about "
+				"newly created UBI volume");
+			return err;
+		}
+		LIST_INSERT_HEAD(&mtd_info->ubi_partitions, ubivol, next);
+		TRACE("Created %s UBI volume %s of %lld bytes (old size %lld)",
+			  (req_vol_type == UBI_DYNAMIC_VOLUME) ? "dynamic" : "static",
+			  req.name, req.bytes, ubivol->vol_info.rsvd_bytes);
 	}
-	err = ubi_get_vol_info1(nandubi->libubi,
-		mtd_info->dev_info.dev_num, req.vol_id,
-		&ubivol->vol_info);
-	if (err) {
-		ERROR("cannot get information about "
-			"newly created UBI volume");
-		return err;
-	}
-	LIST_INSERT_HEAD(&mtd_info->ubi_partitions, ubivol, next);
-	TRACE("Created %s UBI volume %s of %lld bytes (old size %lld)",
-	      (req_vol_type == UBI_DYNAMIC_VOLUME) ? "dynamic" : "static",
-	      req.name, req.bytes, ubivol->vol_info.rsvd_bytes);
 
 	return 0;
 }
@@ -562,13 +564,13 @@ static int swap_volume(struct img_type *img, void *data)
 
 		/* swap first -> second */
 		rnvol.ents[2 * count + 0].vol_id = vol_id[0];
-		rnvol.ents[2 * count + 0].name_len = strlen(name[1]);
-		strcpy(rnvol.ents[2 * count + 0].name, name[1]);
+		rnvol.ents[2 * count + 0].name_len = min(strlen(name[1]), UBI_MAX_VOLUME_NAME);
+		strlcpy(rnvol.ents[2 * count + 0].name, name[1], UBI_MAX_VOLUME_NAME);
 
 		/* swap second -> first */
 		rnvol.ents[2 * count + 1].vol_id = vol_id[1];
-		rnvol.ents[2 * count + 1].name_len = strlen(name[0]);
-		strcpy(rnvol.ents[2 * count + 1].name, name[0]);
+		rnvol.ents[2 * count + 1].name_len = min(strlen(name[0]), UBI_MAX_VOLUME_NAME);
+		strlcpy(rnvol.ents[2 * count + 1].name, name[0], UBI_MAX_VOLUME_NAME);
 
 		count++;
 	}

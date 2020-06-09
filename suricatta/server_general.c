@@ -11,6 +11,7 @@
  * See documentation for more details
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
@@ -42,7 +43,7 @@
 void server_print_help(void);
 server_op_res_t server_has_pending_action(int *action_id);
 server_op_res_t server_stop(void);
-server_op_res_t server_ipc(int fd);
+server_op_res_t server_ipc(ipc_message *msg);
 server_op_res_t server_start(char *fname, int argc, char *argv[]);
 server_op_res_t server_install_update(void);
 server_op_res_t server_send_target_data(void);
@@ -102,7 +103,9 @@ static channel_data_t channel_data_defaults = {.debug = false,
 					       .retries = CHANNEL_DEFAULT_RESUME_TRIES,
 					       .retry_sleep =
 						   CHANNEL_DEFAULT_RESUME_DELAY,
+#ifdef CONFIG_SURICATTA_SSL
 					       .usessl = true,
+#endif
 					       .format = CHANNEL_PARSE_RAW,
 					       .nocheckanswer = true,
 					       .nofollow = true,
@@ -274,6 +277,14 @@ static void *server_progress_thread (void *data)
 	while (1) {
 		if (progfd < 0) {
 			progfd = progress_ipc_connect(true);
+		}
+
+		/*
+		 * if still fails, try later
+		 */
+		if (progfd < 0) {
+			sleep(1);
+			continue;
 		}
 
 		if (progress_ipc_receive(&progfd, &msg) == -1) {
@@ -494,7 +505,6 @@ void server_print_help(void)
 {
 	fprintf(
 	    stderr,
-	    "\tsuricatta (server: general) arguments (mandatory arguments are marked with '*'):\n"
 	    "\t  -u, --url         * Host and port of the server instance, "
 	    "e.g., localhost:8080\n"
 	    "\t  -p, --polldelay     Delay in seconds between two hawkBit "
@@ -603,7 +613,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 
 	/* reset to optind=1 to parse suricatta's argument vector */
 	optind = 1;
-	while ((choice = getopt_long(argc, argv, "u:l:r:w:",
+	opterr = 0;
+	while ((choice = getopt_long(argc, argv, "u:l:r:w:p:",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case 'u':
@@ -625,9 +636,10 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			channel_data_defaults.retry_sleep =
 			    (unsigned int)strtoul(optarg, NULL, 10);
 			break;
+		/* Ignore not recognized options, they can be already parsed by the caller */
 		case '?':
 		default:
-			return SERVER_EINIT;
+			break;
 		}
 	}
 
@@ -668,7 +680,7 @@ server_op_res_t server_stop(void)
 	return SERVER_OK;
 }
 
-server_op_res_t server_ipc(int __attribute__ ((__unused__)) fd)
+server_op_res_t server_ipc(ipc_message __attribute__ ((__unused__)) *msg)
 {
 	return SERVER_OK;
 }

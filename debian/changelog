@@ -1,8 +1,33 @@
-swupdate (2019.11-1) UNRELEASED; urgency=medium
+swupdate (2020.04-1) UNRELEASED; urgency=medium
 
-  * Update to 2019.11-1.
+  [ Nobuhiro Iwamatsu ]
+  * Add d/missing-sources
 
- -- Nobuhiro Iwamatsu <iwamatsu@debian.org>  Mon, 20 Jan 2020 22:07:51 +0900
+  [ SZ Lin (林上智) ]
+  * Bump Standards-Version to 4.5.0
+  * Add configuration setting of Salsa CI
+  * Add a dependency package for CI testing
+  * Fix autopkgtest error
+
+  [ Bastian Germann ]
+  * Fix nodoc usage (Closes: #950772)
+  * Introduce lua package and nolua profile
+  * Remove file filter
+  * defconfig: Activate CONFIG_SIGALG_CMS
+  * defconfig: Set Debian's default grubenv path
+  * defconfig: Save suricatta state in grubenv
+  * defconfig: Enable rdiff handler
+  * defconfig: Enable zstd compression
+  * Update signing key for version 2020.04
+  * Remove upstream patches
+  * lintian: debian-rules-uses-as-needed-linker-flag
+  * d/copyright: suricatta test files were moved
+  * Add new handlers
+  * Enable cross compilation
+  * Add a backports profile
+  * New upstream version 2020.04 (Closes: #948673)
+
+ -- Bastian Germann <bastiangermann@fishpost.de>  Tue, 09 Jun 2020 12:09:01 +0200
 
 swupdate (2019.04+git20190903.c3ef374-1~exp1) experimental; urgency=medium
 

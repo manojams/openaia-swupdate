@@ -8,25 +8,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <getopt.h>
-#include <errno.h>
-#include <signal.h>
-#include <sys/ioctl.h>
-#include <fcntl.h>
-#include <sys/types.h>
+#include <strings.h>
+#include <unistd.h>
 #include <sys/socket.h>
-#include <sys/un.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/stat.h>
-#include <ctype.h>
-#include <fcntl.h>
 #include <sys/select.h>
-#include <errno.h>
-#include <pthread.h>
-
+#include <sys/un.h>
 #include "network_ipc.h"
 #include "compat.h"
 
@@ -37,20 +24,6 @@ static char* SOCKET_CTRL_PATH = NULL;
 #endif
 
 #define SOCKET_CTRL_DEFAULT  "sockinstctrl"
-
-struct async_lib {
-	int connfd;
-	int status;
-	writedata	wr;
-	getstatus	get;
-	terminated	end;
-};
-
-static int handle = 0;
-static struct async_lib request;
-static pthread_t async_thread_id;
-
-#define get_request()	(&request)
 
 char *get_ctrl_socket(void) {
 	if (!SOCKET_CTRL_PATH || !strlen(SOCKET_CTRL_PATH)) {
@@ -73,10 +46,13 @@ static int prepare_ipc(void) {
 	struct sockaddr_un servaddr;
 
 	connfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	if (connfd < 0) {
+		return connfd;
+	}
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sun_family = AF_LOCAL;
 
-	strncpy(servaddr.sun_path, get_ctrl_socket(), sizeof(servaddr.sun_path));
+	strncpy(servaddr.sun_path, get_ctrl_socket(), sizeof(servaddr.sun_path) - 1);
 
 	ret = connect(connfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
 	if (ret < 0) {
@@ -106,8 +82,9 @@ int ipc_postupdate(ipc_message *msg) {
 	}
 	memset(msg, 0, sizeof(*msg));
 	if (tmpbuf != NULL) {
-		strncpy(msg->data.instmsg.buf, tmpbuf, sizeof(msg->data.instmsg.buf));
-		msg->data.instmsg.len = strnlen(tmpbuf, sizeof(msg->data.instmsg.buf));
+		msg->data.instmsg.buf[sizeof(msg->data.instmsg.buf) - 1] = '\0';
+		strncpy(msg->data.instmsg.buf, tmpbuf, sizeof(msg->data.instmsg.buf) - 1);
+		msg->data.instmsg.len = strnlen(tmpbuf, sizeof(msg->data.instmsg.buf) - 1);
 	}
 	msg->magic = IPC_MAGIC;
 	msg->type = POST_UPDATE;
@@ -126,9 +103,11 @@ int ipc_postupdate(ipc_message *msg) {
 	return 0;
 }
 
-static int __ipc_get_status(int connfd, ipc_message *msg)
+static int __ipc_get_status(int connfd, ipc_message *msg, unsigned int timeout_ms)
 {
 	ssize_t ret;
+	fd_set fds;
+	struct timeval tv;
 
 	memset(msg, 0, sizeof(*msg));
 	msg->magic = IPC_MAGIC;
@@ -137,11 +116,26 @@ static int __ipc_get_status(int connfd, ipc_message *msg)
 	if (ret != sizeof(*msg))
 		return -1;
 
-	ret = read(connfd, msg, sizeof(*msg));
-	if (ret <= 0)
-		return -1;
+	if (!timeout_ms) {
+		ret = read(connfd, msg, sizeof(*msg));
+	} else {
+		FD_ZERO(&fds);
+		FD_SET(connfd, &fds);
 
-	return 0;
+		/*
+		 * Invalid the message
+		 * Caller should check it
+		 */
+		msg->magic = 0;
+
+		tv.tv_sec = 0;
+		tv.tv_usec = timeout_ms * 1000;
+		ret = select(connfd + 1, &fds, NULL, NULL, &tv);
+		if (ret <= 0 || !FD_ISSET(connfd, &fds))
+			return 0;
+		ret = read(connfd, msg, sizeof(*msg));
+	}
+	return ret;
 }
 
 int ipc_get_status(ipc_message *msg)
@@ -153,7 +147,29 @@ int ipc_get_status(ipc_message *msg)
 	if (connfd < 0) {
 		return -1;
 	}
-	ret = __ipc_get_status(connfd, msg);
+	ret = __ipc_get_status(connfd, msg, 0);
+	close(connfd);
+
+	if (ret > 0)
+		return 0;
+	return -1;
+}
+
+/*
+ * @return : 0 = TIMEOUT
+ *           -1 : error
+ *           else data read
+ */
+int ipc_get_status_timeout(ipc_message *msg, unsigned int timeout_ms)
+{
+	int ret;
+	int connfd;
+
+	connfd = prepare_ipc();
+	if (connfd < 0) {
+		return -1;
+	}
+	ret = __ipc_get_status(connfd, msg, timeout_ms);
 	close(connfd);
 
 	return ret;
@@ -241,15 +257,6 @@ void ipc_end(int connfd)
 	close(connfd);
 }
 
-int swupdate_image_write(char *buf, int size)
-{
-	struct async_lib *rq;
-
-	rq = get_request();
-
-	return ipc_send_data(rq->connfd, buf, size);
-}
-
 int ipc_wait_for_complete(getstatus callback)
 {
 	int fd;
@@ -261,7 +268,7 @@ int ipc_wait_for_complete(getstatus callback)
 		fd = prepare_ipc();
 		if (fd < 0)
 			break;
-		ret = __ipc_get_status(fd, &message);
+		ret = __ipc_get_status(fd, &message, 0);
 		ipc_end(fd);
 
 		if (ret < 0) {
@@ -283,113 +290,6 @@ int ipc_wait_for_complete(getstatus callback)
 	return message.data.status.last_result;
 }
 
-static void *swupdate_async_thread(void *data)
-{
-	char *pbuf;
-	int size;
-	sigset_t sigpipe_mask;
-	sigset_t saved_mask;
-	struct timespec zerotime = {0, 0};
-	struct async_lib *rq = (struct async_lib *)data;
-	int swupdate_result;
-
-	sigemptyset(&sigpipe_mask);
-	sigaddset(&sigpipe_mask, SIGPIPE);
-
-	if (pthread_sigmask(SIG_BLOCK, &sigpipe_mask, &saved_mask) == -1) {
-		  perror("pthread_sigmask");
-		    exit(1);
-	}
-	/* Start writing the image until end */
-
-	do {
-		if (!rq->wr)
-			break;
-
-		rq->wr(&pbuf, &size);
-		if (size)
-			swupdate_image_write(pbuf, size);
-	} while(size > 0);
-
-	ipc_end(rq->connfd);
-	printf("Now getting status\n");
-
-	/*
-	 * Everything sent, ask for status
-	 */
-
-	swupdate_result = ipc_wait_for_complete(rq->get);
-
-	handle = 0;
-
-	if (sigtimedwait(&sigpipe_mask, 0, &zerotime) == -1) {
-		// currently ignored
-	}
-
-	if (pthread_sigmask(SIG_SETMASK, &saved_mask, 0) == -1) {
-		  perror("pthread_sigmask");
-	}
-
-	if (rq->end)
-		rq->end((RECOVERY_STATUS)swupdate_result);
-
-	pthread_exit(NULL);
-}
-
-/*
- * This is duplicated from pctl
- * to let build the ipc library without
- * linking pctl code
- */
-static pthread_t start_ipc_thread(void *(* start_routine) (void *), void *arg)
-{
-	int ret;
-	pthread_t id;
-	pthread_attr_t attr;
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-
-	ret = pthread_create(&id, &attr, start_routine, arg);
-	if (ret) {
-		exit(1);
-	}
-	return id;
-}
-
-/*
- * This is part of the library for an external client.
- * Only one running request is accepted
- */
-int swupdate_async_start(writedata wr_func, getstatus status_func,
-				terminated end_func, bool dryrun)
-{
-	struct async_lib *rq;
-	int connfd;
-
-	if (handle)
-		return -EBUSY;
-
-	rq = get_request();
-
-	rq->wr = wr_func;
-	rq->get = status_func;
-	rq->end = end_func;
-
-	connfd = ipc_inst_start_ext(SOURCE_UNKNOWN, 0, NULL, dryrun);
-
-	if (connfd < 0)
-		return connfd;
-
-	rq->connfd = connfd;
-
-	async_thread_id = start_ipc_thread(swupdate_async_thread, rq);
-
-	handle++;
-
-	return handle;
-}
-
 int ipc_send_cmd(ipc_message *msg)
 {
 	int connfd = prepare_ipc();
@@ -401,7 +301,6 @@ int ipc_send_cmd(ipc_message *msg)
 
 	/* TODO: Check source type */
 	msg->magic = IPC_MAGIC;
-	msg->type = SWUPDATE_SUBPROCESS;
 	ret = write(connfd, msg, sizeof(*msg));
 	if (ret != sizeof(*msg)) {
 		close(connfd);

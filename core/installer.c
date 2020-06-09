@@ -32,6 +32,7 @@
 #include "parsers.h"
 #include "bootloader.h"
 #include "progress.h"
+#include "pctl.h"
 
 /*
  * function returns:
@@ -119,7 +120,7 @@ static int extract_scripts(int fd, struct imglist *head, int fromfile)
 
 		if (fromfile)
 			ret = extract_next_file(fd, fdout, script->offset, 0,
-						script->is_encrypted, script->sha256);
+						script->is_encrypted, script->ivt_ascii, script->sha256);
 		else {
 			int fdin;
 			char *tmpfile;
@@ -138,6 +139,7 @@ static int extract_scripts(int fd, struct imglist *head, int fromfile)
 			if (fdin < 0) {
 				ERROR("Extracted script not found in %s: %s %d",
 					get_tmpdir(), script->extract_file, errno);
+				close(fdout);
 				return -ENOENT;
 			}
 
@@ -146,6 +148,7 @@ static int extract_scripts(int fd, struct imglist *head, int fromfile)
 					&checksum,
 					script->sha256,
 					script->is_encrypted,
+					script->ivt_ascii,
 					NULL);
 			close(fdin);
 		}
@@ -174,11 +177,7 @@ static int update_bootloader_env(struct swupdate_cfg *cfg, const char *script)
 
 		if (!key || !value)
 			continue;
-#if defined(CONFIG_UBOOT) && !defined(CONFIG_UBOOT_NEWAPI)
-		snprintf(buf, sizeof(buf), "%s %s\n", key, value);
-#else
 		snprintf(buf, sizeof(buf), "%s=%s\n", key, value);
-#endif
 		if (write(fd, buf, strlen(buf)) != (ssize_t)strlen(buf)) {
 			  TRACE("Error saving temporary bootloader environment file");
 			  close(fd);
@@ -256,12 +255,13 @@ int install_single_image(struct img_type *img, int dry_run)
 int install_images(struct swupdate_cfg *sw, int fdsw, int fromfile)
 {
 	int ret;
-	struct img_type *img;
+	struct img_type *img, *tmp;
 	char *filename;
 	struct filehdr fdh;
 	struct stat buf;
 	const char* TMPDIR = get_tmpdir();
 	int dry_run = sw->globals.dry_run;
+	bool dropimg;
 
 	/* Extract all scripts, preinstall scripts must be run now */
 	const char* tmpdir_scripts = get_tmpdirscripts();
@@ -281,7 +281,9 @@ int install_images(struct swupdate_cfg *sw, int fdsw, int fromfile)
 		}
 	}
 
-	LIST_FOREACH(img, &sw->images, next) {
+	LIST_FOREACH_SAFE(img, &sw->images, next, tmp) {
+
+		dropimg = false;
 
 		/*
 		 *  If image is flagged to be installed from stream
@@ -337,7 +339,7 @@ int install_images(struct swupdate_cfg *sw, int fdsw, int fromfile)
 					break;
 				}
 			}
-			free_image(img);
+			dropimg = true;
 			ret = 0;
 		} else {
 			ret = install_single_image(img, dry_run);
@@ -346,9 +348,11 @@ int install_images(struct swupdate_cfg *sw, int fdsw, int fromfile)
 		if (!fromfile)
 			close(img->fdin);
 
+		if (dropimg)
+			free_image(img);
+
 		if (ret)
 			return ret;
-
 	}
 
 	/*
@@ -462,28 +466,11 @@ void cleanup_files(struct swupdate_cfg *software) {
 #endif
 }
 
-static int run_system_cmd(const char *cmd, const char *desc)
-{
-	int ret = 0;
-	if ((strnlen(cmd, SWUPDATE_GENERAL_STRING_SIZE) > 0)
-		&& (strnlen(cmd, SWUPDATE_GENERAL_STRING_SIZE) < SWUPDATE_GENERAL_STRING_SIZE)) {
-		DEBUG("Running %s command '%s' ...", desc, cmd);
-		ret = system(cmd);
-		if (WIFEXITED(ret)) {
-			DEBUG("%s command returned %d", desc, WEXITSTATUS(ret));
-		} else {
-			ERROR("%s command returned %d: '%s'", desc, ret, strerror(errno));
-			return -1;
-		}
-	}
-
-	return ret;
-}
-
 int preupdatecmd(struct swupdate_cfg *swcfg)
 {
 	if (swcfg) {
-		return run_system_cmd(swcfg->globals.preupdatecmd, "Pre-update");
+		DEBUG("Running Pre-update command");
+		return run_system_cmd(swcfg->globals.preupdatecmd);
 	}
 
 	return 0;
@@ -493,8 +480,9 @@ int postupdate(struct swupdate_cfg *swcfg, const char *info)
 {
 	swupdate_progress_done(info);
 
-	if ((swcfg) && (run_system_cmd(swcfg->globals.postupdatecmd, "Post-update") == -1)) {
-		return -1;
+	if (swcfg) {
+		DEBUG("Running Post-update command");
+		return run_system_cmd(swcfg->globals.postupdatecmd);
 	}
 
 	return 0;
