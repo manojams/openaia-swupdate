@@ -41,6 +41,13 @@ enum {
 	INSTALL_FROM_STREAM
 };
 
+enum {
+  COMPRESSED_FALSE,
+  COMPRESSED_TRUE,
+  COMPRESSED_ZLIB,
+  COMPRESSED_ZSTD,
+};
+
 struct sw_version {
 	char name[SWUPDATE_GENERAL_STRING_SIZE];
 	char version[SWUPDATE_GENERAL_STRING_SIZE];
@@ -67,6 +74,7 @@ struct img_type {
 	int compressed;
 	int preserve_attributes; /* whether to preserve attributes in archives */
 	int is_encrypted;
+	char ivt_ascii[32];
 	int install_directly;
 	int is_script;
 	int is_partitioner;
@@ -114,9 +122,11 @@ struct swupdate_global_cfg {
 	int dry_run;
 	int no_downgrading;
 	int no_reinstalling;
+	int no_transaction_marker;
 	char publickeyfname[SWUPDATE_GENERAL_STRING_SIZE];
 	char aeskeyfname[SWUPDATE_GENERAL_STRING_SIZE];
 	char postupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
+	char preupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
 	char minimum_version[SWUPDATE_GENERAL_STRING_SIZE];
 	char current_version[SWUPDATE_GENERAL_STRING_SIZE];
 	int cert_purpose;

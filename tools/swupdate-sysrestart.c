@@ -67,7 +67,7 @@ static void restart_system(unsigned int ndevs)
 {
 	int dev;
 	CURL *curl_handle;	/* CURL handle */
-	char url[100];
+	char url[NI_MAXHOST + 20];
 	CURLcode curlrc;
 	struct ifaddrs *ifaddr, *ifa;
 	char local[NI_MAXHOST];
@@ -104,7 +104,7 @@ static void restart_system(unsigned int ndevs)
 		/* something very bad, it should never happen */
 		if (!curl_handle)
 			exit(2);
-		sprintf(url, "http://%s:8080/restart", ipaddrs[dev]);
+		snprintf(url, sizeof(url), "http://%s:8080/restart", ipaddrs[dev]);
 		if ((curl_easy_setopt(curl_handle, CURLOPT_POST, 1L) != CURLE_OK) ||
 			/* get verbose debug output please */
 			(curl_easy_setopt(curl_handle, CURLOPT_VERBOSE,
@@ -180,6 +180,14 @@ int main(int argc, char **argv)
 			connfd = progress_ipc_connect(opt_w);
 		}
 
+		/*
+		 * if still fails, try later
+		 */
+		if (connfd < 0) {
+			sleep(1);
+			continue;
+		}
+
 		if (progress_ipc_receive(&connfd, &msg) == -1) {
 			continue;
 		}
@@ -211,6 +219,13 @@ int main(int argc, char **argv)
 		}
 
 		if (msg.infolen > 0) {
+			/*
+			 * check that msg is NULL terminated
+			 */
+			if (msg.infolen > sizeof(msg.info) - 1) {
+				msg.infolen = sizeof(msg.info) - 1;
+			}
+			msg.info[msg.infolen] = '\0';
 			char *ipaddr = strstr(msg.info, PATTERN);
 			char *end;
 			if (ipaddr && (strlen(ipaddr) > strlen(PATTERN))) {
@@ -219,7 +234,7 @@ int main(int argc, char **argv)
 				if (end)
 					*end = '\0';
 				if (is_ipaddress(ipaddr)) {
-					memset(ipaddrs[ndevs], '0', NI_MAXHOST);
+					memset(ipaddrs[ndevs], 0, NI_MAXHOST);
 					strncpy(ipaddrs[ndevs], ipaddr, sizeof(ipaddrs[ndevs]));
 					fprintf(stdout, "Remote device:%s\n", ipaddr);
 					ndevs++;

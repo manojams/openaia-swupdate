@@ -13,6 +13,9 @@
 #ifdef CONFIG_GUNZIP
 #include <zlib.h>
 #endif
+#ifdef CONFIG_ZSTD
+#include <zstd.h>
+#endif
 
 #include "generated/autoconf.h"
 #include "cpiohdr.h"
@@ -30,6 +33,9 @@ int get_cpiohdr(unsigned char *buf, unsigned long *size,
 			unsigned long *namesize, unsigned long *chksum)
 {
 	struct new_ascii_header *cpiohdr;
+
+	if (!buf)
+		return -EINVAL;
 
 	cpiohdr = (struct new_ascii_header *)buf;
 	if (strncmp(cpiohdr->c_magic, "070702", 6) != 0) {
@@ -77,13 +83,44 @@ static int fill_buffer(int fd, unsigned char *buf, unsigned int nbytes, unsigned
 }
 
 /*
+ * Read padding that could exists between the cpio trailer and the end-of-file.
+ * cpio aligns the file to 512 bytes
+ */
+void extract_padding(int fd, unsigned long *offset)
+{
+    int padding;
+    ssize_t len;
+	unsigned char buf[512];
+
+    if (fd < 0 || !offset)
+        return;
+
+    padding = (512 - (*offset % 512)) % 512;
+    if (padding) {
+        TRACE("Expecting %d padding bytes at end-of-file", padding);
+        len = read(fd, buf, padding);
+        if (len < 0) {
+            DEBUG("Failure while reading padding %d: %s", fd, strerror(errno));
+            return;
+        }
+    }
+
+    return;
+}
+
+/*
  * Export the copy_write{,_*} functions to be used in other modules
  * for copying a buffer to a file.
  */
 int copy_write(void *out, const void *buf, unsigned int len)
 {
 	int ret;
-	int fd = (out != NULL) ? *(int *)out : -1;
+	int fd;
+
+	if (!out)
+		return -1;
+
+	fd = *(int *)out;
 
 	while (len) {
 		errno = 0;
@@ -233,22 +270,29 @@ static int decrypt_step(void *state, void *buffer, size_t size)
 	return 0;
 }
 
-#ifdef CONFIG_GUNZIP
+#if defined(CONFIG_GUNZIP) || defined(CONFIG_ZSTD)
+typedef int (*DecompressStep)(void *state, void *buffer, size_t size);
 
-struct GunzipState
-{
+struct DecompressState {
 	PipelineStep upstream_step;
 	void *upstream_state;
-
-	z_stream strm;
-	bool initialized;
+	void *impl_state;
 	uint8_t input[BUFF_SIZE];
 	bool eof;
+};
+#endif
+
+#ifdef CONFIG_GUNZIP
+
+struct GunzipState {
+	z_stream strm;
+	bool initialized;
 };
 
 static int gunzip_step(void *state, void *buffer, size_t size)
 {
-	struct GunzipState *s = (struct GunzipState *)state;
+	struct DecompressState *ds = (struct DecompressState *)state;
+	struct GunzipState *s = (struct GunzipState *)ds->impl_state;
 	int ret;
 	int outlen = 0;
 
@@ -256,23 +300,23 @@ static int gunzip_step(void *state, void *buffer, size_t size)
 	s->strm.avail_out = size;
 	while (outlen == 0) {
 		if (s->strm.avail_in == 0) {
-			ret = s->upstream_step(s->upstream_state, s->input, sizeof s->input);
+			ret = ds->upstream_step(ds->upstream_state, ds->input, sizeof ds->input);
 			if (ret < 0) {
 				return ret;
 			} else if (ret == 0) {
-				s->eof = true;
+				ds->eof = true;
 			}
 			s->strm.avail_in = ret;
-			s->strm.next_in = s->input;
+			s->strm.next_in = ds->input;
 		}
-		if (s->eof) {
+		if (ds->eof) {
 			break;
 		}
 
 		ret = inflate(&s->strm, Z_NO_FLUSH);
 		outlen = size - s->strm.avail_out;
 		if (ret == Z_STREAM_END) {
-			s->eof = true;
+			ds->eof = true;
 			break;
 		}
 		if (ret != Z_OK && ret != Z_BUF_ERROR) {
@@ -285,9 +329,55 @@ static int gunzip_step(void *state, void *buffer, size_t size)
 
 #endif
 
+#ifdef CONFIG_ZSTD
+
+struct ZstdState {
+	ZSTD_DStream* dctx;
+	ZSTD_inBuffer input_view;
+};
+
+static int zstd_step(void* state, void* buffer, size_t size)
+{
+	struct DecompressState *ds = (struct DecompressState *)state;
+	struct ZstdState *s = (struct ZstdState *)ds->impl_state;
+	size_t decompress_ret;
+	int ret;
+	ZSTD_outBuffer output = { buffer, size, 0 };
+
+	do {
+		if (s->input_view.pos == s->input_view.size) {
+			ret = ds->upstream_step(ds->upstream_state, ds->input, sizeof ds->input);
+			if (ret < 0) {
+				return ret;
+			} else if (ret == 0) {
+				ds->eof = true;
+			}
+			s->input_view.size = ret;
+			s->input_view.pos = 0;
+		}
+
+		do {
+			decompress_ret = ZSTD_decompressStream(s->dctx, &output, &s->input_view);
+
+			if (ZSTD_isError(decompress_ret)) {
+				ERROR("ZSTD_decompressStream failed (returned %zu)", decompress_ret);
+				return -1;
+			}
+
+			if (output.pos == output.size) {
+				break;
+			}
+		} while (s->input_view.pos < s->input_view.size);
+	} while (output.pos == 0 && !ds->eof);
+
+	return output.pos;
+}
+
+#endif
+
 int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsigned long long seek,
 	int skip_file, int __attribute__ ((__unused__)) compressed,
-	uint32_t *checksum, unsigned char *hash, int encrypted, writeimage callback)
+	uint32_t *checksum, unsigned char *hash, int encrypted, const char *imgivt, writeimage callback)
 {
 	unsigned int percent, prevpercent = 0;
 	int ret = 0;
@@ -299,6 +389,7 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 	unsigned int md_len = 0;
 	unsigned char *aes_key = NULL;
 	unsigned char *ivt = NULL;
+	unsigned char ivtbuf[32];
 
 	struct InputState input_state = {
 		.fdin = fdin,
@@ -314,17 +405,29 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 		.outlen = 0, .eof = false
 	};
 
+#if defined(CONFIG_GUNZIP) || defined(CONFIG_ZSTD)
+	struct DecompressState decompress_state = {
+		.upstream_step = NULL, .upstream_state = NULL,
+		.impl_state = NULL
+	};
+
+	DecompressStep decompress_step = NULL;
 #ifdef CONFIG_GUNZIP
 	struct GunzipState gunzip_state = {
-		.upstream_step = NULL, .upstream_state = NULL,
 		.strm = {
 			.zalloc = Z_NULL, .zfree = Z_NULL, .opaque = Z_NULL,
 			.avail_in = 0, .next_in = Z_NULL,
 			.avail_out = 0, .next_out = Z_NULL
 		},
 		.initialized = false,
-		.eof = false
 	};
+#endif
+#ifdef CONFIG_ZSTD
+	struct ZstdState zstd_state = {
+		.dctx = NULL,
+		.input_view = { NULL, 0, 0 },
+	};
+#endif
 #endif
 
 	PipelineStep step = NULL;
@@ -346,7 +449,10 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 
 	if (encrypted) {
 		aes_key = get_aes_key();
-		ivt = get_aes_ivt();
+		if (imgivt && strlen(imgivt) && !ascii_to_bin(ivtbuf, imgivt, sizeof(ivtbuf))) {
+			ivt = ivtbuf;
+		} else
+			ivt = get_aes_ivt();
 		decrypt_state.dcrypt = swupdate_DECRYPT_init(aes_key, ivt);
 		if (!decrypt_state.dcrypt) {
 			ERROR("decrypt initialization failure, aborting");
@@ -356,26 +462,52 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 	}
 
 	if (compressed) {
+		if (compressed == COMPRESSED_TRUE) {
+			WARN("compressed argument: boolean form is deprecated, use the string form");
+		}
 #ifdef CONFIG_GUNZIP
-		/*
-		 * 16 + MAX_WBITS means that Zlib should expect and decode a
-		 * gzip header.
-		 */
-		if (inflateInit2(&gunzip_state.strm, 16 + MAX_WBITS) != Z_OK) {
-			ERROR("inflateInit2 failed");
-			ret = -EFAULT;
+		if (compressed == COMPRESSED_ZLIB || compressed == COMPRESSED_TRUE) {
+			/*
+			 * 16 + MAX_WBITS means that Zlib should expect and decode a
+			 * gzip header.
+			 */
+			if (inflateInit2(&gunzip_state.strm, 16 + MAX_WBITS) != Z_OK) {
+				ERROR("inflateInit2 failed");
+				ret = -EFAULT;
+				goto copyfile_exit;
+			}
+			gunzip_state.initialized = true;
+			decompress_step = &gunzip_step;
+			decompress_state.impl_state = &gunzip_state;
+		} else
+#endif
+#ifdef CONFIG_ZSTD
+		if (compressed == COMPRESSED_ZSTD) {
+			if ((zstd_state.dctx = ZSTD_createDStream()) == NULL) {
+				ERROR("ZSTD_createDStream failed");
+				ret = -EFAULT;
+				goto copyfile_exit;
+			}
+			zstd_state.input_view.src = decompress_state.input;
+			decompress_step = &zstd_step;
+			decompress_state.impl_state = &zstd_state;
+		} else
+#endif
+		{
+			TRACE("Requested decompression method (%d) is not configured!", compressed);
+			ret = -EINVAL;
 			goto copyfile_exit;
 		}
-		gunzip_state.initialized = true;
-#else
-		TRACE("Request decompressing, but CONFIG_GUNZIP not set !");
-		ret = -EINVAL;
-		goto copyfile_exit;
-#endif
 	}
 
 	if (seek) {
 		int fdout = (out != NULL) ? *(int *)out : -1;
+		if (fdout < 0) {
+			ERROR("out argument: invalid fd or pointer");
+			ret = -EFAULT;
+			goto copyfile_exit;
+		}
+
 		TRACE("offset has been defined: %llu bytes", seek);
 		if (lseek(fdout, seek, SEEK_SET) < 0) {
 			ERROR("offset argument: seek failed");
@@ -384,19 +516,19 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 		}
 	}
 
-#ifdef CONFIG_GUNZIP
+#if defined(CONFIG_GUNZIP) || defined(CONFIG_ZSTD)
 	if (compressed) {
 		if (encrypted) {
 			decrypt_state.upstream_step = &input_step;
 			decrypt_state.upstream_state = &input_state;
-			gunzip_state.upstream_step = &decrypt_step;
-			gunzip_state.upstream_state = &decrypt_state;
+			decompress_state.upstream_step = &decrypt_step;
+			decompress_state.upstream_state = &decrypt_state;
 		} else {
-			gunzip_state.upstream_step = &input_step;
-			gunzip_state.upstream_state = &input_state;
+			decompress_state.upstream_step = &input_step;
+			decompress_state.upstream_state = &input_state;
 		}
-		step = &gunzip_step;
-		state = &gunzip_state;
+		step = decompress_step;
+		state = &decompress_state;
 	} else {
 #endif
 		if (encrypted) {
@@ -408,7 +540,7 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 			step = &input_step;
 			state = &input_state;
 		}
-#ifdef CONFIG_GUNZIP
+#if defined(CONFIG_GUNZIP) || defined(CONFIG_ZSTD)
 	}
 #endif
 
@@ -487,6 +619,11 @@ copyfile_exit:
 		inflateEnd(&gunzip_state.strm);
 	}
 #endif
+#ifdef CONFIG_ZSTD
+	if (zstd_state.dctx != NULL) {
+		ZSTD_freeDStream(zstd_state.dctx);
+	}
+#endif
 
 	return ret;
 }
@@ -503,12 +640,13 @@ int copyimage(void *out, struct img_type *img, writeimage callback)
 			&img->checksum,
 			img->sha256,
 			img->is_encrypted,
+			img->ivt_ascii,
 			callback);
 }
 
 int extract_cpio_header(int fd, struct filehdr *fhdr, unsigned long *offset)
 {
-	unsigned char buf[256];
+	unsigned char buf[sizeof(fhdr->filename)];
 	if (fill_buffer(fd, buf, sizeof(struct new_ascii_header), offset, NULL, NULL) < 0)
 		return -EINVAL;
 	if (get_cpiohdr(buf, &fhdr->size, &fhdr->namesize, &fhdr->chksum) < 0) {
@@ -525,7 +663,8 @@ int extract_cpio_header(int fd, struct filehdr *fhdr, unsigned long *offset)
 
 	if (fill_buffer(fd, buf, fhdr->namesize , offset, NULL, NULL) < 0)
 		return -EINVAL;
-	strncpy(fhdr->filename, (char *)buf, sizeof(fhdr->filename));
+	buf[fhdr->namesize] = '\0';
+	strlcpy(fhdr->filename, (char *)buf, sizeof(fhdr->filename));
 
 	/* Skip filename padding, if any */
 	if (fill_buffer(fd, buf, (4 - (*offset % 4)) % 4, offset, NULL, NULL) < 0)
@@ -558,16 +697,19 @@ int extract_sw_description(int fd, const char *descfile, off_t *offs)
 		ERROR("File Name too long : %s", fdh.filename);
 		return -1;
 	}
-	strncpy(output_file, TMPDIR, sizeof(output_file));
+	strlcpy(output_file, TMPDIR, sizeof(output_file));
 	strcat(output_file, fdh.filename);
 	fdout = openfileoutput(output_file);
+	if (fdout < 0) {
+		return -1;
+	}
 
 	if (lseek(fd, offset, SEEK_SET) < 0) {
 		ERROR("CPIO file corrupted : %s", strerror(errno));
 		close(fdout);
 		return -1;
 	}
-	if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, NULL, 0, NULL) < 0) {
+	if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
 		ERROR("%s corrupted or not valid", descfile);
 		close(fdout);
 		return -1;
@@ -613,7 +755,7 @@ int extract_img_from_cpio(int fd, unsigned long offset, struct filehdr *fdh)
 }
 
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
-		int encrypted, unsigned char *hash)
+		int encrypted, char *ivt, unsigned char *hash)
 {
 	int ret;
 	struct filehdr fdh;
@@ -639,7 +781,7 @@ off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 		return ret;
 	}
 
-	ret = copyfile(fd, &fdout, fdh.size, &offset, 0, 0, compressed, &checksum, hash, encrypted, NULL);
+	ret = copyfile(fd, &fdout, fdh.size, &offset, 0, 0, compressed, &checksum, hash, encrypted, ivt, NULL);
 	if (ret < 0) {
 		ERROR("Error copying extracted file");
 		return ret;
@@ -667,7 +809,6 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 	int file_listed;
 	uint32_t checksum;
 
-
 	while (1) {
 		file_listed = 0;
 		start = offset;
@@ -693,7 +834,7 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 		 * we do not have to provide fdout
 		 */
 		if (copyfile(fd, NULL, fdh.size, &offset, 0, 1, 0, &checksum, img ? img->sha256 : NULL,
-				0, NULL) != 0) {
+				0, NULL, NULL) != 0) {
 			ERROR("invalid archive");
 			return -1;
 		}

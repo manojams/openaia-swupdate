@@ -20,6 +20,8 @@ tests-$(CONFIG_HASH_VERIFY) += test_hash
 ifeq ($(CONFIG_SIGALG_RAWRSA),y)
 tests-$(CONFIG_SIGNED_IMAGES) += test_verify
 endif
+tests-$(CONFIG_SURICATTA_HAWKBIT) += test_json
+tests-$(CONFIG_SURICATTA_HAWKBIT) += test_server_hawkbit
 
 ccflags-y += -I$(src)/../
 
@@ -33,7 +35,7 @@ EXTRA_LDFLAGS += $(strip $(subst ",,$(CONFIG_EXTRA_LDFLAGS)))#"))
 endif
 
 ## transfer __mock_*() functions to according linker flags via rudimentary regex awk parsing
-LDMOCKS = `/usr/bin/awk '/^[^(extern)|(static)]*([\*_[:alnum:]]+[[:blank:]]+)+[\*]*__wrap_/{where = match($$0,"__wrap_[_[:alnum:]]+"); if (RSTART > 0) { print "-Wl,--wrap=" substr($$0, RSTART+7, RLENGTH-7);}}' $(basename $@).c`
+LDMOCKS = `/usr/bin/gawk '/^[^(extern)|(static)]*([\*_[:alnum:]]+[[:blank:]]+)+[\*]*__wrap_/{where = match($$0,"__wrap_[_[:alnum:]]+"); if (RSTART > 0) { print "-Wl,--wrap=" substr($$0, RSTART+7, RLENGTH-7);}}' $(basename $@).c`
 
 quiet_cmd_linktestexe = LD      $(basename $@)
       cmd_linktestexe = $(srctree)/scripts/trylink \
@@ -57,7 +59,7 @@ tests: $(tests-objs) $(tests-lnk)
 	@+$(foreach var,$(TARGETS),$(EXECUTE_TEST);)
 else
 tests:
-	@$(info crypto functions are disabled, nothing to test.)
+	@$(info nothing to test.)
 	@:
 endif
 

@@ -80,6 +80,7 @@ static struct option long_options[] = {
 	{"dry-run", no_argument, NULL, 'n'},
 	{"no-downgrading", required_argument, NULL, 'N'},
 	{"no-reinstalling", required_argument, NULL, 'R'},
+	{"no-transaction-marker", no_argument, NULL, 'M'},
 #ifdef CONFIG_SIGNED_IMAGES
 	{"key", required_argument, NULL, 'k'},
 	{"ca-path", required_argument, NULL, 'k'},
@@ -107,6 +108,7 @@ static struct option long_options[] = {
 #endif
 	{"check", no_argument, NULL, 'c'},
 	{"postupdate", required_argument, NULL, 'p'},
+	{"preupdate", required_argument, NULL, 'P'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -123,6 +125,7 @@ static void usage(char *programname)
 		" -b, --blacklist <list of mtd>  : MTDs that must not be scanned for UBI\n"
 #endif
 		" -p, --postupdate               : execute post-update command\n"
+		" -P, --preupdate                : execute pre-update command\n"
 		" -e, --select <software>,<mode> : Select software images set and source\n"
 		"                                  Ex.: stable,main\n"
 		" -i, --image <filename>         : Software to be installed\n"
@@ -142,6 +145,7 @@ static void usage(char *programname)
 		" -n, --dry-run                  : run SWUpdate without installing the software\n"
 		" -N, --no-downgrading <version> : not install a release older as <version>\n"
 		" -R, --no-reinstalling <version>: not install a release same as <version>\n"
+		" -M, --no-transaction-marker    : disable setting bootloader transaction marker\n"
 		" -o, --output <output file>     : saves the incoming stream\n"
 		" -v, --verbose                  : be verbose, set maximum loglevel\n"
 		"     --version                  : print SWUpdate version and exit\n"
@@ -209,9 +213,9 @@ static int opt_to_hwrev(char *param, struct hw_type *hw)
 		return -EINVAL;
 	}
 
-	strncpy(hw->revision, s + 1, sizeof(hw->revision));
+	strlcpy(hw->revision, s + 1, sizeof(hw->revision));
 	*s = '\0';
-	strncpy(hw->boardname, param, sizeof(hw->boardname));
+	strlcpy(hw->boardname, param, sizeof(hw->boardname));
 
 	if (!strlen(hw->boardname) || !strlen(hw->revision))
 		return -EINVAL;
@@ -284,6 +288,7 @@ static int searching_for_image(char *name)
 
 	free(dirc);
 	free(basec);
+	closedir(path);
 
 	return fd;
 }
@@ -337,7 +342,7 @@ static int install_from_file(char *fname, int check)
 	}
 
 	if (cpio_scan(fdsw, &swcfg, pos) < 0) {
-		ERROR("failed to scan for pos '%ld'!", pos);
+		ERROR("failed to scan for pos '%lld'!", (long long)pos);
 		close(fdsw);
 		exit(EXIT_FAILURE);
 	}
@@ -360,6 +365,12 @@ static int install_from_file(char *fname, int check)
 	if (check) {
 		fprintf(stdout, "successfully checked '%s'\n", fname);
 		exit(EXIT_SUCCESS);
+	}
+
+	ret = preupdatecmd(&swcfg);
+	if (ret) {
+		ERROR("Failed pre-update command!");
+		exit(EXIT_FAILURE);
 	}
 
 #ifdef CONFIG_MTD
@@ -396,19 +407,16 @@ static int install_from_file(char *fname, int check)
 static int parse_image_selector(const char *selector, struct swupdate_cfg *sw)
 {
 	char *pos;
-	size_t len;
 
 	pos = strchr(selector, ',');
 	if (pos == NULL)
 		return -EINVAL;
 
-	len = pos - selector;
-	if (len > sizeof(sw->software_set))
-		len = sizeof(sw->software_set);
+	*pos = '\0';
 
-	strncpy(sw->software_set, selector, len);
+	strlcpy(sw->software_set, selector, sizeof(sw->software_set));
 	/* pos + 1 will either be NULL or valid text */
-	strncpy(sw->running_mode, pos + 1, sizeof(sw->running_mode));
+	strlcpy(sw->running_mode, pos + 1, sizeof(sw->running_mode));
 
 	if (strlen(sw->software_set) == 0 || strlen(sw->running_mode) == 0)
 		return -EINVAL;
@@ -417,9 +425,17 @@ static int parse_image_selector(const char *selector, struct swupdate_cfg *sw)
 }
 
 static void create_directory(const char* path) {
-	char* dpath = alloca(strlen(get_tmpdir())+strlen(path)+1);
-	sprintf(dpath, "%s%s", get_tmpdir(), path);
-	mkdir(dpath, 0777);
+	char* dpath;
+	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
+		ENOMEM_ASPRINTF) {
+		ERROR("OOM: Directory %s not created", path);
+		return;
+	}
+	if (mkdir(dpath, 0777)) {
+		WARN("Directory %s cannot be created due to : %s",
+		     path, strerror(errno));
+	}
+	free(dpath);
 }
 
 #ifndef CONFIG_NOCLEANUP
@@ -434,9 +450,16 @@ static int _remove_directory_cb(const char *fpath, const struct stat *sb,
 
 static int remove_directory(const char* path)
 {
-	char* dpath = alloca(strlen(get_tmpdir())+strlen(path)+1);
-	sprintf(dpath, "%s%s", get_tmpdir(), path);
-	return nftw(dpath, _remove_directory_cb, 64, FTW_DEPTH | FTW_PHYS);
+	char* dpath;
+	int ret;
+	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
+		ENOMEM_ASPRINTF) {
+		ERROR("OOM: Directory %s not removed", path);
+		return -ENOMEM;
+	}
+	ret = nftw(dpath, _remove_directory_cb, 64, FTW_DEPTH | FTW_PHYS);
+	free(dpath);
+	return ret;
 }
 #endif
 
@@ -505,6 +528,8 @@ static int read_globals_settings(void *elem, void *data)
 				"mtd-blacklist", sw->globals.mtdblacklist);
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
 				"postupdatecmd", sw->globals.postupdatecmd);
+	GET_FIELD_STRING(LIBCFG_PARSER, elem,
+				"preupdatecmd", sw->globals.preupdatecmd);
 	get_field(LIBCFG_PARSER, elem, "verbose", &sw->globals.verbose);
 	get_field(LIBCFG_PARSER, elem, "loglevel", &sw->globals.loglevel);
 	get_field(LIBCFG_PARSER, elem, "syslog", &sw->globals.syslog_enabled);
@@ -608,7 +633,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:l:Lcf:p:o:N:R:");
+	strcpy(main_options, "vhni:e:l:Lcf:p:P:o:N:R:M");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -653,32 +678,46 @@ int main(int argc, char **argv)
 		switch (c) {
 		case 'f':
 			cfgfname = sdup(optarg);
-			if (read_module_settings(cfgfname, "globals",
-				read_globals_settings, &swcfg)) {
-				fprintf(stderr,
-					 "Error parsing configuration file, exiting..\n");
-				exit(EXIT_FAILURE);
-			}
-
-			loglevel = swcfg.globals.loglevel;
-			if (swcfg.globals.verbose)
-				loglevel = TRACELEVEL;
-
-			int ret = read_module_settings(cfgfname, "processes",
-							read_processes_settings,
-							&swcfg);
-			/*
-			 * ignore other errors, check only if file is parsed
-			 */
-			if (ret == -EINVAL) {
-				fprintf(stderr,
-					 "Error parsing configuration file, exiting..\n");
-				exit(EXIT_FAILURE);
-			}
 			break;
 		case '0':
 			printf("%s", BANNER);
 			exit(EXIT_SUCCESS);
+		}
+	}
+
+	/* Check for (and use) default configuration if present and none
+	 * was supplied on the command line (-f)
+	 */
+	if (cfgfname == NULL) {
+		struct stat stbuf;
+		if (stat(CONFIG_DEFAULT_CONFIG_FILE, &stbuf) == 0) {
+			cfgfname = sdup(CONFIG_DEFAULT_CONFIG_FILE);
+		}
+	}
+
+	/* Load configuration file */
+	if (cfgfname != NULL) {
+		if (read_module_settings(cfgfname, "globals",
+			read_globals_settings, &swcfg)) {
+			fprintf(stderr,
+				 "Error parsing configuration file, exiting..\n");
+			exit(EXIT_FAILURE);
+		}
+
+		loglevel = swcfg.globals.loglevel;
+		if (swcfg.globals.verbose)
+			loglevel = TRACELEVEL;
+
+		int ret = read_module_settings(cfgfname, "processes",
+						read_processes_settings,
+						&swcfg);
+		/*
+		 * ignore other errors, check only if file is parsed
+		 */
+		if (ret == -EINVAL) {
+			fprintf(stderr,
+				 "Error parsing configuration file, exiting..\n");
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -715,11 +754,11 @@ int main(int argc, char **argv)
 			break;
 #endif
 		case 'i':
-			strncpy(fname, optarg, sizeof(fname));
+			strlcpy(fname, optarg, sizeof(fname));
 			opt_i = 1;
 			break;
 		case 'o':
-			strncpy(swcfg.output, optarg, sizeof(swcfg.output));
+			strlcpy(swcfg.output, optarg, sizeof(swcfg.output));
 			break;
 		case 'l':
 			loglevel = strtoul(optarg, NULL, 10);
@@ -731,7 +770,7 @@ int main(int argc, char **argv)
 			swcfg.globals.syslog_enabled = 1;
 			break;
 		case 'k':
-			strncpy(swcfg.globals.publickeyfname,
+			strlcpy(swcfg.globals.publickeyfname,
 				optarg,
 			       	sizeof(swcfg.globals.publickeyfname));
 			break;
@@ -739,25 +778,29 @@ int main(int argc, char **argv)
 			swcfg.globals.cert_purpose = parse_cert_purpose(optarg);
 			break;
 		case '2':
-			strncpy(swcfg.globals.forced_signer_name, optarg,
+			strlcpy(swcfg.globals.forced_signer_name, optarg,
 				sizeof(swcfg.globals.forced_signer_name));
 			break;
 #ifdef CONFIG_ENCRYPTED_IMAGES
 		case 'K':
-			strncpy(swcfg.globals.aeskeyfname,
+			strlcpy(swcfg.globals.aeskeyfname,
 				optarg,
 			       	sizeof(swcfg.globals.aeskeyfname));
 			break;
 #endif
 		case 'N':
 			swcfg.globals.no_downgrading = 1;
-			strncpy(swcfg.globals.minimum_version, optarg,
+			strlcpy(swcfg.globals.minimum_version, optarg,
 				sizeof(swcfg.globals.minimum_version));
 			break;
 		case 'R':
 			swcfg.globals.no_reinstalling = 1;
-			strncpy(swcfg.globals.current_version, optarg,
+			strlcpy(swcfg.globals.current_version, optarg,
 				sizeof(swcfg.globals.current_version));
+			break;
+		case 'M':
+			swcfg.globals.no_transaction_marker = 1;
+			TRACE("transaction_marker globally disabled");
 			break;
 		case 'e':
 			software_select = optarg;
@@ -814,8 +857,12 @@ int main(int argc, char **argv)
 			opt_c = 1;
 			break;
 		case 'p':
-			strncpy(swcfg.globals.postupdatecmd, optarg,
+			strlcpy(swcfg.globals.postupdatecmd, optarg,
 				sizeof(swcfg.globals.postupdatecmd));
+			break;
+		case 'P':
+			strlcpy(swcfg.globals.preupdatecmd, optarg,
+				sizeof(swcfg.globals.preupdatecmd));
 			break;
 		default:
 			usage(argv[0]);

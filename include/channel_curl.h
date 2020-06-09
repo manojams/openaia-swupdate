@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "util.h"
 #ifdef CONFIG_JSON
 #include <json-c/json.h>
 #endif
@@ -37,6 +38,7 @@ typedef struct {
 	char *url;
 	char *auth;
 	char *request_body;
+	char *iface;
 #ifdef CONFIG_JSON
 	json_object *json_reply;
 #endif
@@ -46,7 +48,7 @@ typedef struct {
 	char *ciphers;
 	char *proxy;
 	char *info;
-	char *header;
+	char *auth_token;
 	const char *content_type;
 	unsigned int retry_sleep;
 	unsigned int offs;

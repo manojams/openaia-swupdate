@@ -77,7 +77,7 @@ channel_t *channel_new(void);
 
 channel_op_res_t channel_curl_init(void)
 {
-#if defined(CONFIG_SURICATTA_SSL) || defined(CONFIG_CHANNEL_CURL_SSL)
+#if defined(CONFIG_CHANNEL_CURL_SSL)
 #define CURL_FLAGS CURL_GLOBAL_SSL
 #else
 #define CURL_FLAGS CURL_GLOBAL_NOTHING
@@ -251,6 +251,8 @@ channel_op_res_t channel_map_http_code(channel_t *this, long *http_response_code
 		ERROR("Get channel HTTP response code unsupported by libcURL "
 		      "%s.\n",
 		      LIBCURL_VERSION);
+		/* Set to 0 as libcURL would do if no response code has been received. */
+		*http_response_code = 0;
 		return CHANNEL_EINIT;
 	}
 	switch (*http_response_code) {
@@ -266,6 +268,7 @@ channel_op_res_t channel_map_http_code(channel_t *this, long *http_response_code
 	case 400: /* Bad Request, e.g., invalid parameters */
 	case 406: /* Not acceptable. Accept header is not response compliant */
 	case 443: /* Connection refused */
+	case 409: /* Conflict */
 		return CHANNEL_EBADMSG;
 	case 404: /* Wrong URL */
 		return CHANNEL_ENOTFOUND;
@@ -381,7 +384,7 @@ static int channel_callback_xferinfo(void *p, curl_off_t dltotal, curl_off_t dln
 					"{\"percent\": %d, \"msg\":\"Received %" CURL_FORMAT_CURL_OFF_T "B "
 					"of %" CURL_FORMAT_CURL_OFF_T "B\"}",
 					(int)percent, dlnow, dltotal) != ENOMEM_ASPRINTF) {
-		notify(SUBPROCESS, RECOVERY_NO_ERROR, TRACELEVEL, info);
+		notify(PROGRESS, RECOVERY_NO_ERROR, TRACELEVEL, info);
 		free(info);
 	}
 	return 0;
@@ -592,9 +595,21 @@ channel_op_res_t channel_set_options(channel_t *this,
 		}
 	}
 
-	if (channel_data->header != NULL) {
+	if (channel_data->auth_token != NULL) {
 		if (((channel_curl->header = curl_slist_append(
-				channel_curl->header, channel_data->header)) == NULL)) {
+				channel_curl->header, channel_data->auth_token)) == NULL)) {
+			result = CHANNEL_EINIT;
+			goto cleanup;
+		}
+	}
+
+	/*
+	 * If requested, use a specific interface/IP address
+	 */
+	if (channel_data->iface != NULL) {
+		if (curl_easy_setopt(channel_curl->handle,
+		    CURLOPT_INTERFACE,
+		    channel_data->iface) != CURLE_OK) {
 			result = CHANNEL_EINIT;
 			goto cleanup;
 		}
@@ -737,16 +752,15 @@ static channel_op_res_t channel_post_method(channel_t *this, void *data)
 
 	channel_log_effective_url(this);
 
-	long http_response_code;
-	if ((result = channel_map_http_code(this, &http_response_code)) !=
-	    CHANNEL_OK) {
+	result = channel_map_http_code(this, &channel_data->http_response_code);
+	if (result != CHANNEL_OK) {
 		ERROR("Channel operation returned HTTP error code %ld.",
-		      http_response_code);
+		      channel_data->http_response_code);
 		goto cleanup_header;
 	}
 	if (channel_data->debug) {
 		TRACE("Channel put operation returned HTTP status code %ld.",
-			http_response_code);
+			channel_data->http_response_code);
 	}
 
 cleanup_header:
@@ -803,14 +817,14 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 
 	channel_log_effective_url(this);
 
-	long http_response_code;
-	if ((result = channel_map_http_code(this, &http_response_code)) != CHANNEL_OK) {
+	result = channel_map_http_code(this, &channel_data->http_response_code);
+	if (result != CHANNEL_OK) {
 		ERROR("Channel operation returned HTTP error code %ld.",
-		      http_response_code);
+		      channel_data->http_response_code);
 		goto cleanup_header;
 	}
 	TRACE("Channel put operation returned HTTP error code %ld.",
-	      http_response_code);
+	      channel_data->http_response_code);
 
 cleanup_header:
 	curl_easy_reset(channel_curl->handle);
@@ -826,6 +840,7 @@ channel_op_res_t channel_put(channel_t *this, void *data)
 
 	channel_data_t *channel_data = (channel_data_t *)data;
 
+	channel_data->http_response_code = 0;
 	switch (channel_data->method) {
 	case CHANNEL_PUT:
 		return channel_put_method(this, data);
@@ -846,6 +861,7 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
+	channel_data->http_response_code = 0;
 
 	if (channel_data->usessl) {
 		memset(channel_data->sha1hash, 0x0, SWUPDATE_SHA_DIGEST_LENGTH * 2 + 1);
@@ -983,16 +999,15 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 	DEBUG("Channel downloaded %llu bytes ~ %llu MiB.",
 	      total_bytes_downloaded, total_bytes_downloaded / 1024 / 1024);
 
-	long http_response_code;
-	if ((result = channel_map_http_code(this, &http_response_code)) !=
-	    CHANNEL_OK) {
+	result = channel_map_http_code(this, &channel_data->http_response_code);
+	if (result != CHANNEL_OK) {
 		ERROR("Channel operation returned HTTP error code %ld.",
-		      http_response_code);
+		      channel_data->http_response_code);
 		goto cleanup_file;
 	}
 	if (channel_data->debug) {
 		TRACE("Channel operation returned HTTP status code %ld.",
-			http_response_code);
+			channel_data->http_response_code);
 	}
 
 	if (result_channel_callback_write_file != CHANNEL_OK) {
@@ -1045,6 +1060,7 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
+	channel_data->http_response_code = 0;
 
 	if (channel_data->debug) {
 		curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
@@ -1097,17 +1113,15 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 		channel_log_effective_url(this);
 	}
 
-	long http_response_code;
-	result = channel_map_http_code(this, &http_response_code);
+	result = channel_map_http_code(this, &channel_data->http_response_code);
 
 	if (channel_data->nocheckanswer)
 		goto cleanup_chunk;
 
-	if ((result = channel_map_http_code(this, &http_response_code)) !=
-	    CHANNEL_OK) {
+	if (result != CHANNEL_OK) {
 		ERROR("Channel operation returned HTTP error code %ld.",
-		      http_response_code);
-		switch (http_response_code) {
+		      channel_data->http_response_code);
+		switch (channel_data->http_response_code) {
 			case 403:
 			case 404:
 			case 500:
@@ -1120,7 +1134,7 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 	}
 	if (channel_data->debug) {
 		TRACE("Channel operation returned HTTP status code %ld.",
-			http_response_code);
+			channel_data->http_response_code);
 	}
 
 #ifdef CONFIG_JSON

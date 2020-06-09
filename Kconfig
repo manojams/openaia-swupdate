@@ -33,6 +33,10 @@ config HAVE_LIBCURL
 	bool
 	option env="HAVE_LIBCURL"
 
+config HAVE_LIBFDISK
+	bool
+	option env="HAVE_LIBFDISK"
+
 config HAVE_LIBGPIOD
 	bool
 	option env="HAVE_LIBGPIOD"
@@ -60,6 +64,10 @@ config HAVE_LIBZEROMQ
 config HAVE_ZLIB
 	bool
 	option env="HAVE_ZLIB"
+
+config HAVE_ZSTD
+	bool
+	option env="HAVE_ZSTD"
 
 config HAVE_LIBSSL
 	bool
@@ -104,6 +112,15 @@ config SYSTEMD
 	help
 	  Enable support for systemd's start-up completion
 	  notification and socket-based activation features.
+
+config DEFAULT_CONFIG_FILE
+	string "File with default settings"
+	default "/etc/swupdate.cfg"
+	help
+	  SWUpdate may get its default configuration settings
+	  from the specified file (if present). Users may
+	  override the default configuration with the -f
+	  option switch.
 
 config SCRIPTS
 	bool "enable pre and postinstall scripts"
@@ -433,6 +450,10 @@ config GUNZIP
 	bool
 	depends on HAVE_ZLIB
 	default y
+
+config ZSTD
+	bool "Zstd compression support"
+	depends on HAVE_ZSTD
 
 source parser/Config.in
 source handlers/Config.in

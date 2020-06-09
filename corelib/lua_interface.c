@@ -34,6 +34,12 @@ extern const char EMBEDDED_LUA_SRC_END[];
 	lua_settable(L, -3);			\
 } while (0)
 
+#define LUA_PUSH_IMG_STRING_VALUE(img, attr, value)  do { \
+	lua_pushstring(L, attr);		\
+	lua_pushstring(L, value);		\
+	lua_settable(L, -3);			\
+} while (0)
+
 #define LUA_PUSH_IMG_BOOL(img, attr, field)  do { \
 	lua_pushstring(L, attr);		\
 	lua_pushboolean(L, img->field);		\
@@ -241,6 +247,16 @@ static void lua_string_to_img(struct img_type *img, const char *key,
 	const char offset[] = "offset";
 	char seek_str[MAX_SEEK_STRING_SIZE];
 
+	if (!strcmp(key, "compressed")) {
+		if (!strcmp(value, "zlib")) {
+			img->compressed = COMPRESSED_ZLIB;
+		} else if (!strcmp(value, "zstd")) {
+			img->compressed = COMPRESSED_ZSTD;
+		} else {
+			ERROR("compressed argument: '%s' invalid", value);
+			img->compressed = COMPRESSED_FALSE;
+		}
+	}
 	if (!strcmp(key, "name")) {
 		strncpy(img->id.name, value,
 			sizeof(img->id.name));
@@ -276,6 +292,9 @@ static void lua_string_to_img(struct img_type *img, const char *key,
 			sizeof(img->filesystem));
 	if (!strcmp(key, "sha256"))
 		ascii_to_hash(img->sha256, value);
+	if (!strcmp(key, "ivt"))
+		strncpy(img->ivt_ascii, value,
+			sizeof(img->ivt_ascii));
 
 	if (!strncmp(key, offset, sizeof(offset))) {
 		strncpy(seek_str, value,
@@ -317,7 +336,6 @@ static void lua_number_to_img(struct img_type *img, const char *key,
 		img->size = (long long)val;
 	if (!strcmp(key, "checksum"))
 		img->checksum = (unsigned int)val;
-
 }
 
 #ifdef CONFIG_HANDLER_IN_LUA
@@ -349,6 +367,7 @@ static int l_copy2file(lua_State *L)
 				 &checksum,
 				 img.sha256,
 				 img.is_encrypted,
+				 img.ivt_ascii,
 				 NULL);
 	update_table(L, &img);
 	lua_pop(L, 1);
@@ -420,6 +439,7 @@ static int l_istream_read(lua_State* L)
 				 &checksum,
 				 img.sha256,
 				 img.is_encrypted,
+				 img.ivt_ascii,
 				 istream_read_callback);
 
 	lua_pop(L, 1);
@@ -460,8 +480,8 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_STRING(img, "mtdname", path);
 		LUA_PUSH_IMG_STRING(img, "data", type_data);
 		LUA_PUSH_IMG_STRING(img, "filesystem", filesystem);
+		LUA_PUSH_IMG_STRING(img, "ivt", ivt_ascii);
 
-		LUA_PUSH_IMG_BOOL(img, "compressed", compressed);
 		LUA_PUSH_IMG_BOOL(img, "installed_directly", install_directly);
 		LUA_PUSH_IMG_BOOL(img, "install_if_different", id.install_if_different);
 		LUA_PUSH_IMG_BOOL(img, "install_if_higher", id.install_if_higher);
@@ -472,6 +492,18 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_NUMBER(img, "offset", seek);
 		LUA_PUSH_IMG_NUMBER(img, "size", size);
 		LUA_PUSH_IMG_NUMBER(img, "checksum", checksum);
+
+		switch (img->compressed) {
+			case COMPRESSED_ZLIB:
+				LUA_PUSH_IMG_STRING_VALUE(img, "compressed", "zlib");
+				break;
+			case COMPRESSED_ZSTD:
+				LUA_PUSH_IMG_STRING_VALUE(img, "compressed", "zstd");
+				break;
+			default:
+				LUA_PUSH_IMG_BOOL(img, "compressed", compressed);
+				break;
+		}
 
 		lua_pushstring(L, "properties");
 		lua_newtable (L);
@@ -679,24 +711,24 @@ static int notify_helper(lua_State *L, LOGLEVEL level)
 	return 0;
 }
 
-static int l_trace(lua_State *L) {
+int lua_notify_trace(lua_State *L) {
 	return notify_helper(L, TRACELEVEL);
 }
 
-static int l_error(lua_State *L) {
+int lua_notify_error(lua_State *L) {
 	return notify_helper(L, ERRORLEVEL);
 }
 
-static int l_info(lua_State *L) {
+int lua_notify_info(lua_State *L) {
 	return notify_helper(L, INFOLEVEL);
 }
 
-static int l_warn(lua_State *L)
+int lua_notify_warn(lua_State *L)
 {
 	return notify_helper(L, WARNLEVEL);
 }
 
-static int l_debug(lua_State *L)
+int lua_notify_debug(lua_State *L)
 {
 	return notify_helper(L, DEBUGLEVEL);
 }
@@ -819,11 +851,11 @@ static int l_progress_update(lua_State *L)
  */
 static const luaL_Reg l_swupdate[] = {
         { "notify", l_notify },
-        { "error", l_error },
-        { "trace", l_trace },
-        { "info", l_info },
-        { "warn", l_warn },
-        { "debug", l_debug },
+        { "error", lua_notify_error },
+        { "trace", lua_notify_trace },
+        { "info", lua_notify_info },
+        { "warn", lua_notify_warn },
+        { "debug", lua_notify_debug },
         { "mount", l_mount },
         { "umount", l_umount },
         { NULL, NULL }
@@ -1018,7 +1050,7 @@ static int l_call_handler(lua_State *L)
 		lua_pushstring(L, "Error allocating memory");
 		return 2;
 	}
-	strncpy(img.type, lua_tostring(L, 1), sizeof(img.type));
+	strlcpy(img.type, lua_tostring(L, 1), sizeof(img.type));
 
 	if ((hnd = find_handler(&img)) == NULL) {
 		if (asprintf(&msg, "Image type %s not supported!", img.type) == -1) {
@@ -1036,7 +1068,7 @@ static int l_call_handler(lua_State *L)
 	}
 
 call_handler_exit:
-	strncpy(img.type, orighndtype, sizeof(img.type));
+	strlcpy(img.type, orighndtype, sizeof(img.type));
 	update_table(L, &img);
 	lua_pop(L, 2);
 	lua_pushnumber(L, ret);

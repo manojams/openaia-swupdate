@@ -48,7 +48,7 @@ config UBIWHITELIST
 	help
 	  Define a list of MTD devices that are planned to have
 	  always UBI. If first attach fails, the device is erased
-	  and tried again. 
+	  and tried again.
 	  The list can be set as a string with the mtd numbers.
 	  Examples: "0 1 2"
 	  This sets mtd0-mtd1-mtd2 to be used as UBI volumes.
@@ -92,6 +92,16 @@ config CFIHAMMING1
 
 	  You do not need this if you do not have an OMAP SoC.
 
+config DISKPART
+	bool "diskpart"
+	depends on HAVE_LIBFDISK
+	default n
+	help
+	  Handler to partition a disk, eMMC or SD
+
+comment "diskpart support needs libfdisk"
+	depends on !HAVE_LIBFDISK
+
 config RAW
 	bool "raw"
 	default n
@@ -105,6 +115,18 @@ config RDIFFHANDLER
 	help
 	  Add support for applying librsync's rdiff patches,
 	  see http://librsync.sourcefrog.net/
+
+config READBACKHANDLER
+	bool "readback"
+	depends on HASH_VERIFY
+	default n
+	help
+	  To verify that an image was written properly, this readback handler
+	  calculates the sha256 hash of a partition (or part of it) and compares
+	  it against a given hash value.
+
+	  This is a post-install handler running at the same time as
+	  post-install scripts.
 
 config LUASCRIPTHANDLER
 	bool "Lua Script"
@@ -164,6 +186,14 @@ config ARCHIVE
 
 comment "archive support needs libarchive"
 	depends on !HAVE_LIBARCHIVE
+	
+config LOCALE
+	bool "Locale support for filenames"
+	depends on ARCHIVE
+	default y
+	help
+	  Option to remove attempts to use locale in systems
+	  without locale support in toolchain.
 
 config REMOTE_HANDLER
 	bool "Remote handler"
@@ -211,6 +241,17 @@ config BOOTLOADERHANDLER
 	help
 	  Enable it to change bootloader environment
 	  during the installation process.
+
+config SSBLSWITCH
+	bool "Second Stage Switcher"
+	depends on MTD
+	default n
+	help
+	  This handler allows to switch between two software set
+	  based on an administration block stored in flash (CFI interface).
+	  It works like the switch of UBI and allow to switch in an atomic
+	  way between two software set. It can be used to reliable update
+	  a second stage bootloader.
 
 config UCFWHANDLER
 	bool "microcontroller firmware update"
