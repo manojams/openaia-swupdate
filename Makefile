@@ -1,4 +1,4 @@
-VERSION = 2019
+VERSION = 2020
 PATCHLEVEL = 04
 SUBLEVEL = 0
 EXTRAVERSION =
@@ -202,6 +202,9 @@ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 CFLAGS_KERNEL	=
 AFLAGS_KERNEL	=
 
+BINDIR ?= /usr/bin
+LIBDIR ?= /usr/lib
+INCLUDEDIR ?= /usr/include
 
 # Use LINUXINCLUDE when you must reference the include/ directory.
 # Needed to be compatible with the O= option
@@ -365,7 +368,7 @@ swupdate-all	:= $(swupdate-objs) $(swupdate-libs)
 
 tools-dirs	:= $(tools-y)
 tools-objs	:= $(patsubst %,%/built-in.o, $(tools-y))
-tools-bins	:= $(patsubst $(tools-y)/%.c,$(tools-y)/%,$(wildcard $(tools-y)/*.c))
+tools-bins	:= $(patsubst $(srctree)/$(tools-y)/%.c,$(tools-y)/%,$(wildcard $(srctree)/$(tools-y)/*.c))
 tools-bins-unstr:= $(patsubst %,%_unstripped,$(tools-bins))
 tools-all	:= $(tools-objs)
 
@@ -446,35 +449,30 @@ ${tools-bins}: ${tools-objs} ${swupdate-libs} FORCE
 	$(call cmd,strip)
 
 install: all
-	install -d ${DESTDIR}/usr/bin
-	install -d ${DESTDIR}/usr/include
-	install -d ${DESTDIR}/usr/lib
-	install -m 755 swupdate ${DESTDIR}/usr/bin
+	install -d ${DESTDIR}/${BINDIR}
+	install -d ${DESTDIR}/${INCLUDEDIR}
+	install -d ${DESTDIR}/${LIBDIR}
+	install -m 755 swupdate ${DESTDIR}/${BINDIR}
 	for i in ${tools-bins};do \
-		install -m 755 $$i ${DESTDIR}/usr/bin; \
+		install -m 755 $$i ${DESTDIR}/${BINDIR}; \
 	done
-	install -m 0644 include/network_ipc.h ${DESTDIR}/usr/include
-	install -m 0644 include/swupdate_status.h ${DESTDIR}/usr/include
-	install -m 0644 include/progress_ipc.h ${DESTDIR}/usr/include
-	install -m 0755 ipc/lib.a ${DESTDIR}/usr/lib/libswupdate.a
+	install -m 0644 include/network_ipc.h ${DESTDIR}/${INCLUDEDIR}
+	install -m 0644 include/swupdate_status.h ${DESTDIR}/${INCLUDEDIR}
+	install -m 0644 include/progress_ipc.h ${DESTDIR}/${INCLUDEDIR}
+	install -m 0755 ipc/lib.a ${DESTDIR}/${LIBDIR}/libswupdate.a
 	if [ $(HAVE_LUA) = y ]; then \
-		install -d ${DESTDIR}/usr/lib/lua/$(LUAVER); \
-		install -m 0755 ${lua_swupdate} $(DESTDIR)/usr/lib/lua/$(LUAVER); \
+		install -d ${DESTDIR}/${LIBDIR}/lua/$(LUAVER); \
+		install -m 0755 ${lua_swupdate} $(DESTDIR)/${LIBDIR}/lua/$(LUAVER); \
 	fi
 
 PHONY += run-tests
 tests: \
 	acceptance-tests \
-	suricatta-tests \
 	corelib-tests
 
 PHONY += acceptance-tests
 acceptance-tests: FORCE
 	$(Q)$(MAKE) $(build)=scripts/acceptance-tests tests
-
-PHONY += suricatta-tests
-suricatta-tests: FORCE
-	$(Q)$(MAKE) $(build)=suricatta/test SWOBJS="$(swupdate-objs)" SWLIBS="$(swupdate-libs)" LDLIBS="$(LDLIBS)" tests
 
 PHONY += test
 test:
@@ -536,7 +534,8 @@ clean: $(clean-dirs)
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \
 		-o -name modules.builtin -o -name '.tmp_*.o.*' \
 		-o -name '*.gcno' \) -type f -print | xargs rm -f
-	@$(MAKE) -C doc clean
+	@pwd
+	$(Q)$(MAKE) -f $(srctree)/doc/Makefile BUILDDIR=$(CURDIR)/doc/build clean
 
 # mrproper - Delete all generated files, including .config
 #
@@ -583,17 +582,17 @@ clean := -f $(if $(KBUILD_SRC),$(srctree)/)scripts/Makefile.clean obj
 endif #ifeq ($(config-targets),1)
 endif #ifeq ($(mixed-targets),1)
 
-endif	# skip-makefile
-
-PHONY += FORCE
-FORCE:
-
 # Documentation
 # run Makefile in doc directory
 
 dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub \
 latex latexpdf text man changes linkcheck html doctest:
-	@$(MAKE) -C doc $@
+	$(Q)$(MAKE) -C $(srctree)/doc BUILDDIR=$(CURDIR)/doc/build $@
+
+endif	# skip-makefile
+
+PHONY += FORCE
+FORCE:
 
 # Declare the contents of the .PHONY variable as phony.  We keep that
 # information in a variable so we can use it in if_changed and friends.

@@ -4,6 +4,22 @@ sudo: required
 
 language: c
 
+env:
+  global:
+   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
+   #   via the "travis encrypt" command using the project repo's public key
+   - secure: "wJ7iVkgyOeIY1AIZqeJ/kduIZ8ny9Bvi0QeNxkOOX2XkZ1bGrraTi8i/bQ0uk+uEp01G/XeBF8zB/7ntB51244sQfR2/ErixSKfYGFZRXBoIR/VJndst/azMSUjMc11TZwuWkiIJtmg4Aiz2jUmUvn0BTPwXWN4IKHp4IalYo5GJjEhbi/y94L/KraDlVJIJYT72gBKqxMN6Xqgrz0wB8sVF9jWkqmF2v/LVwDet9us5QRh8gfobK0fqnadQMQr+KImoi/tjK8JfHz6v2GSETi4kNsSidR/iQ3vZmZD2Zl16SsyxqoOAeUC0u8hN7yOCcMpFzXyvfzm5AayNyPOUcYojO0M14Yb5yYGPFTi7E6Ha5UO9aJIGZChfgWaOdbJ1ZsG7OOS9VAv5pdD7jpAQOmM/hxm6G7hCkB2asqMkM45UNCM8J3ipiBuq6cvTOTKY/0wp60kh96G02f9Eu9A9NQw3JrMNmcrObSPBHz6mUPA0hlze1Sj7OfylFBEjMtdlFheKbXsW013+C0gZPs/F+FxWppRjkBJYtdv9UKfZRuHAzaR1r4iv1DXTFBksOBjvp2XxNfe8GBRPFbDDjPbXL+8arsGnbNanlSd93r3uOTDLOjM8QN4tPeAtLpA0xv87YSJmbAsGpHneysaOGETMEoivTRXb0zLf4MmnMVsEqQY="
+
+addons:
+  coverity_scan:
+    project:
+      name: "sbabic/swupdate"
+      description: Update agent for embedded linux
+    notification_email: swupdate@googlegroups.com
+    build_command_prepend: make all_handlers_defconfig
+    build_command: make
+    branch_pattern: coverity_scan
+
 before_install:
     - sudo apt-get -qq update
     - sudo apt-get install -y build-essential
@@ -30,8 +46,8 @@ before_install:
     - sudo apt-get install -y linux-headers-$(uname -r)
     - sudo apt-get install -y libmbedtls-dev
     - sudo apt-get install -y libcmocka-dev
-
-script:
+    - sudo apt-get install -y libfdisk-dev
+    - echo -n | openssl s_client -connect https://scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
     - sudo ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/lua5.2.pc /usr/lib/x86_64-linux-gnu/pkgconfig/lua.pc
     - sudo mkdir -p /usr/local/lib
     - sudo mkdir -p /usr/local/include
@@ -53,7 +69,7 @@ script:
     - make
     - sudo make install
     - cd ..
-    - git clone https://github.com/warmcat/libwebsockets.git
+    - git clone -b v3.0-stable https://github.com/warmcat/libwebsockets.git
     - cd libwebsockets
     - cmake .
     - make
@@ -68,7 +84,7 @@ script:
     - sudo install -m 755 -d /usr/include/efibootguard
     - sudo install -m 644 include/ebgenv.h /usr/include/efibootguard/ebgenv.h
     - cd ..
-    - git clone https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git
+    - git clone -b v1.4.1 https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git
     - cd libgpiod
     - mkdir -p include/linux
     - cp /usr/src/linux-headers-$(uname -r)/include/linux/compiler_types.h include/linux/.
@@ -77,4 +93,6 @@ script:
     - sudo make install
     - cd ..
     - sudo ldconfig
+
+script:
     - for i in configs/*;do echo $i;make `basename $i` && make || exit 1;make test || exit 1;done

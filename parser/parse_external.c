@@ -35,38 +35,38 @@ static void sw_append_stream(struct img_type *img, const char *key,
 	char seek_str[MAX_SEEK_STRING_SIZE];
 
 	if (!strcmp(key, "type"))
-		strncpy(img->type, value,
+		strlcpy(img->type, value,
 			sizeof(img->type));
 	if (!strcmp(key, "filename")) {
-		strncpy(img->fname, value,
+		strlcpy(img->fname, value,
 			sizeof(img->fname));
 		img->required = 1;
 	}
 	if (!strcmp(key, "name")) {
-		strncpy(img->id.name, value,
+		strlcpy(img->id.name, value,
 			sizeof(img->id.name));
 	}
 	if (!strcmp(key, "version")) {
-		strncpy(img->id.version, value,
+		strlcpy(img->id.version, value,
 			sizeof(img->id.version));
 	}
 	if (!strcmp(key, "mtdname") || !strcmp(key, "dest"))
-		strncpy(img->path, value,
+		strlcpy(img->path, value,
 			sizeof(img->path));
 	if (!strcmp(key, "filesystem"))
-		strncpy(img->filesystem, value,
+		strlcpy(img->filesystem, value,
 			sizeof(img->filesystem));
 	if (!strcmp(key, "volume"))
-		strncpy(img->volname, value,
+		strlcpy(img->volname, value,
 			sizeof(img->volname));
 	if (!strcmp(key, "device_id"))
-		strncpy(img->device, value,
+		strlcpy(img->device, value,
 			sizeof(img->device));
 	if (!strcmp(key, "device"))
-		strncpy(img->device, value,
+		strlcpy(img->device, value,
 			sizeof(img->device));
 	if (!strncmp(key, offset, sizeof(offset))) {
-		strncpy(seek_str, value,
+		strlcpy(seek_str, value,
 			sizeof(seek_str));
 		/* convert the offset handling multiplicative suffixes */
 		img->seek = ustrtoull(seek_str, 0);
@@ -77,14 +77,25 @@ static void sw_append_stream(struct img_type *img, const char *key,
 	if (!strcmp(key, "script"))
 		img->is_script = 1;
 	if (!strcmp(key, "path"))
-		strncpy(img->path, value,
+		strlcpy(img->path, value,
 			sizeof(img->path));
 	if (!strcmp(key, "sha256"))
 		ascii_to_hash(img->sha256, value);
 	if (!strcmp(key, "encrypted"))
 		img->is_encrypted = 1;
-	if (!strcmp(key, "compressed"))
-		img->compressed = 1;
+	if (!strcmp(key, "compressed")) {
+		if (value != NULL) {
+			if (!strcmp(value, "zlib")) {
+				img->compressed = COMPRESSED_ZLIB;
+			} else if (!strcmp(value, "zstd")) {
+				img->compressed = COMPRESSED_ZSTD;
+			} else {
+				img->compressed = COMPRESSED_TRUE;
+			}
+		} else {
+			img->compressed = COMPRESSED_TRUE;
+		}
+	}
 	if (!strcmp(key, "installed-directly"))
 		img->install_directly = 1;
 	if (!strcmp(key, "install-if-different"))
@@ -113,7 +124,7 @@ int parse_external(struct swupdate_cfg *software, const char *filename)
 	if (ret) {
 		LUAstackDump(L);
 		ERROR("ERROR preparing Parser in Lua %d", ret);
-		
+
 		return 1;
 	}
 
@@ -138,11 +149,11 @@ int parse_external(struct swupdate_cfg *software, const char *filename)
 	}
 
 	if (lua_type(L, 1) == LUA_TSTRING)
-		strncpy(software->name, lua_tostring(L, 1),
+		strlcpy(software->name, lua_tostring(L, 1),
 				sizeof(software->name));
 
 	if (lua_type(L, 2) == LUA_TSTRING)
-		strncpy(software->version, lua_tostring(L, 2),
+		strlcpy(software->version, lua_tostring(L, 2),
 				sizeof(software->version));
 	nstreams = 0;
 	lua_pushnil(L);
@@ -153,7 +164,7 @@ int parse_external(struct swupdate_cfg *software, const char *filename)
 
 		if (lua_type(L, -1) == LUA_TTABLE) {
 			lua_pushnil(L);
-			image = (struct img_type *)calloc(1, sizeof(struct img_type));	
+			image = (struct img_type *)calloc(1, sizeof(struct img_type));
 			if (!image) {
 				ERROR( "No memory: malloc failed");
 				return -ENOMEM;

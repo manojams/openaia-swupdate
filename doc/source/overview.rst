@@ -152,6 +152,8 @@ scripts, and so on.
 Different strategies can be used, depending on the system's
 resources. I am listing some of them.
 
+.. _double_copy:
+
 Double copy with fall-back
 --------------------------
 
@@ -191,6 +193,8 @@ it is always possible to upgrade the not running copy.
 
 SWUpdate will set bootloader's variable to signal the that a new image is
 successfully installed.
+
+.. _single_copy:
 
 Single copy - running as standalone image
 -----------------------------------------
@@ -332,11 +336,11 @@ Updating the boot loader is in most cases a one-way process. On most SOCs,
 there is no possibility to have multiple copies of the boot loader, and when
 boot loader is broken, the board does not simply boot.
 
-Some SOCs allow to have multiple copies of the
+Some SOCs allow one to have multiple copies of the
 boot loader. But again, there is no general solution for this because it
 is *very* hardware specific.
 
-In my experience, most targets do not allow to update the boot loader. It
+In my experience, most targets do not allow one to update the boot loader. It
 is very uncommon that the boot loader must be updated when the product
 is ready for production.
 

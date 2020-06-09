@@ -50,6 +50,52 @@ char *sdup(const char *str) {
 static char* TMPDIR = NULL;
 static char* TMPDIRSCRIPT = NULL;
 
+/*
+ * Convert a hash as hexa string into a sequence of bytes
+ * hash must be an array of 32 bytes as specified by SHA256
+ */
+int ascii_to_bin(unsigned char *hash, const char *s, size_t len)
+{
+	unsigned int i;
+	unsigned int val;
+
+	if (s == NULL) {
+		return 0;
+	}
+
+	if (len % 2)
+		return -EINVAL;
+	if (strlen(s) == len) {
+		for (i = 0; i < len; i+= 2) {
+			val = from_ascii(&s[i], 2, LG_16);
+			hash[i / 2] = val;
+		}
+	} else
+		return -1;
+
+	return 0;
+}
+
+static int countargc(char *args, char **argv)
+{
+	int count = 0;
+
+	while (isspace (*args))
+		++args;
+	while (*args) {
+		if (argv)
+			argv[count] = args;
+		while (*args && !isspace (*args))
+			++args;
+		if (argv && *args)
+			*args++ = '\0';
+		while (isspace (*args))
+			++args;
+		count++;
+	}
+	return count;
+}
+
 const char* get_tmpdir(void)
 {
 	if (TMPDIR != NULL) {
@@ -85,26 +131,6 @@ const char* get_tmpdirscripts(void)
 	return TMPDIRSCRIPT;
 }
 
-static int countargc(char *args, char **argv)
-{
-	int count = 0;
-
-	while (isspace (*args))
-		++args;
-	while (*args) {
-		if (argv)
-			argv[count] = args;
-		while (*args && !isspace (*args))
-			++args;
-		if (argv && *args)
-			*args++ = '\0';
-		while (isspace (*args))
-			++args;
-		count++;
-	}
-	return count;
-}
-
 char **splitargs(char *args, int *argc)
 {
 	char **argv = NULL;
@@ -118,9 +144,6 @@ char **splitargs(char *args, int *argc)
 			argn = countargc(args, argv);
 			argv[argn] = NULL;
 		}
-
-		if (args && !argv)
-			free (args);
 
 		*argc = argn;
 		return argv;
@@ -191,6 +214,38 @@ char *substring(const char *src, int first, int len) {
 	return s;
 }
 
+#if defined(__linux__)
+
+/*
+ * Copy string src to buffer dst of size dsize.  At most dsize-1
+ * chars will be copied.  Always NUL terminates (unless dsize == 0).
+ * Returns strlen(src); if retval >= dsize, truncation occurred.
+ */
+size_t
+strlcpy(char * __restrict dst, const char * __restrict src, size_t dsize)
+{
+	const char *osrc = src;
+	size_t nleft = dsize;
+
+	/* Copy as many bytes as will fit. */
+	if (nleft != 0) {
+		while (--nleft != 0) {
+			if ((*dst++ = *src++) == '\0')
+				break;
+		}
+	}
+
+	/* Not enough room in dst, add NUL and traverse rest of src. */
+	if (nleft == 0) {
+		if (dsize != 0)
+			*dst = '\0';		/* NUL-terminate dst */
+		while (*src++)
+			;
+	}
+
+	return(src - osrc - 1);	/* count does not include NUL */
+}
+#endif
 
 int openfileoutput(const char *filename)
 {
@@ -270,16 +325,20 @@ int get_hw_revision(struct hw_type *hw)
 	if ((strlen(b1) > (SWUPDATE_GENERAL_STRING_SIZE) - 1) ||
 		(strlen(b2) > (SWUPDATE_GENERAL_STRING_SIZE - 1))) {
 		ERROR("Board name or revision too long");
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
-	strncpy(hw->boardname, b1, sizeof(hw->boardname));
-	strncpy(hw->revision, b2, sizeof(hw->revision));
+	strlcpy(hw->boardname, b1, sizeof(hw->boardname));
+	strlcpy(hw->revision, b2, sizeof(hw->revision));
 
+	ret = 0;
+
+out:
 	free(b1);
 	free(b2);
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -402,32 +461,6 @@ from_ascii (char const *where, size_t digs, unsigned logbase)
 	return value;
 }
 
-/*
- * Convert a hash as hexa string into a sequence of bytes
- * hash must be an array of 32 bytes as specified by SHA256
- */
-static int ascii_to_bin(unsigned char *hash, const char *s, size_t len)
-{
-	unsigned int i;
-	unsigned int val;
-
-	if (s == NULL) {
-		return 0;
-	}
-
-	if (len % 2)
-		return -EINVAL;
-	if (strlen(s) == len) {
-		for (i = 0; i < len; i+= 2) {
-			val = from_ascii(&s[i], 2, LG_16);
-			hash[i / 2] = val;
-		}
-	} else
-		return -1;
-
-	return 0;
-}
-
 int ascii_to_hash(unsigned char *hash, const char *s)
 {
 	return ascii_to_bin(hash, s, 64);
@@ -499,15 +532,7 @@ int load_decryption_key(char *fname)
 	}
 	fclose(fp);
 
-	if (aes_key)
-		free(aes_key);
-
-	aes_key = (struct decryption_key *)calloc(1, sizeof(*aes_key));
-	if (!aes_key)
-		return -ENOMEM;
-
-	ret = ascii_to_bin(aes_key->key,  b1, sizeof(aes_key->key)  * 2) |
-	      ascii_to_bin(aes_key->ivt,  b2, sizeof(aes_key->ivt)  * 2);
+	ret = set_aes_key(b1, b2);
 
 	if (b1 != NULL)
 		free(b1);
@@ -532,6 +557,45 @@ unsigned char *get_aes_ivt(void) {
 	if (!aes_key)
 		return NULL;
 	return aes_key->ivt;
+}
+
+int set_aes_key(const char *key, const char *ivt)
+{
+	int ret;
+
+	/*
+	 * Allocates the global structure just once
+	 */
+	if (!aes_key) {
+		aes_key = (struct decryption_key *)calloc(1, sizeof(*aes_key));
+		if (!aes_key)
+			return -ENOMEM;
+	}
+
+	ret = ascii_to_bin(aes_key->key,  key, sizeof(aes_key->key) * 2) |
+	      ascii_to_bin(aes_key->ivt,  ivt, sizeof(aes_key->ivt) * 2);
+
+	if (ret) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int set_aes_ivt(const char *ivt)
+{
+	int ret;
+
+	if (!aes_key)
+		return -EFAULT;
+
+	ret = ascii_to_bin(aes_key->ivt,  ivt, sizeof(aes_key->ivt) * 2);
+
+	if (ret) {
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 char** string_split(const char* in, const char d)
@@ -710,6 +774,7 @@ char *swupdate_time_iso8601(void)
 	char msbuf[4];
 	/* date length is fix, reserve enough space */
 	char *buf = (char *)malloc(DATE_SIZE_ISO8601);
+	char *tmp;
 
 	if (!buf)
 		return NULL;
@@ -723,7 +788,9 @@ char *swupdate_time_iso8601(void)
 	 * Replace '*' placeholder with ms value
 	 */
 	snprintf(msbuf, sizeof(msbuf), "%03d", ms);
-	memcpy(strchr(buf, '*'), msbuf, 3);
+	tmp = strchr(buf, '*');
+	if (tmp)
+		memcpy(tmp, msbuf, 3);
 
 	/*
 	 * strftime add 4 bytes for timezone, ISO8601 uses
@@ -733,3 +800,45 @@ char *swupdate_time_iso8601(void)
 
 	return buf;
 }
+
+int swupdate_file_setnonblock(int fd, bool block)
+{
+	int flags;
+
+	flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1)
+		return -EFAULT;
+
+	if (block)
+		flags |= O_NONBLOCK;
+	else
+		flags &= ~O_NONBLOCK;
+
+	return fcntl(fd, F_SETFL, flags);
+}
+
+/* Write escaped output to sized buffer */
+size_t snescape(char *dst, size_t n, const char *src)
+{
+	size_t len = 0;
+
+	if (n < 3)
+		return 0;
+
+	memset(dst, 0, n);
+
+	for (int i = 0; src[i] != '\0'; i++) {
+		if (src[i] == '\\' || src[i] == '\"') {
+			if (len < n - 2)
+				dst[len] = '\\';
+			len++;
+		}
+		if (len < n - 1)
+			dst[len] = src[i];
+		len++;
+	}
+
+	return len;
+}
+
+

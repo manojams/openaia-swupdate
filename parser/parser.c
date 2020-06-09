@@ -139,7 +139,7 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 		ERROR("Missing version in configuration file");
 		return false;
 	}
-	
+
 	GET_FIELD_STRING(p, setting, NULL, swcfg->version);
 	TRACE("Version %s", swcfg->version);
 
@@ -148,11 +148,15 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 		TRACE("Description %s", swcfg->description);
 	}
 
-	swcfg->bootloader_transaction_marker = true;
-	if((setting = find_node(p, cfg, "bootloader_transaction_marker", swcfg)) != NULL) {
-		get_field(p, setting, NULL, &swcfg->bootloader_transaction_marker);
-		TRACE("Setting bootloader transaction marker: %s",
-			  swcfg->bootloader_transaction_marker == true ? "true" : "false");
+	if(swcfg->globals.no_transaction_marker) {
+		swcfg->bootloader_transaction_marker = false;
+	} else {
+		swcfg->bootloader_transaction_marker = true;
+		if((setting = find_node(p, cfg, "bootloader_transaction_marker", swcfg)) != NULL) {
+			get_field(p, setting, NULL, &swcfg->bootloader_transaction_marker);
+			TRACE("Setting bootloader transaction marker: %s",
+			      swcfg->bootloader_transaction_marker == true ? "true" : "false");
+		}
 	}
 
 	if ((setting = find_node(p, cfg, "output", swcfg)) != NULL) {
@@ -228,7 +232,7 @@ static int parse_hw_compatibility(parsertype p, void *cfg, struct swupdate_cfg *
 			return -1;
 		}
 
-		strncpy(hwrev->revision, s, sizeof(hwrev->revision));
+		strlcpy(hwrev->revision, s, sizeof(hwrev->revision));
 		LIST_INSERT_HEAD(&swcfg->hardware, hwrev, next);
 		TRACE("Accepted Hw Revision : %s", hwrev->revision);
 	}
@@ -259,6 +263,7 @@ static int run_embscript(parsertype p, void *elem, struct img_type *img,
 static int parse_common_attributes(parsertype p, void *elem, struct img_type *image)
 {
 	char seek_str[MAX_SEEK_STRING_SIZE];
+	const char* compressed;
 
 	/*
 	 * GET_FIELD_STRING does not touch the passed string if it is not
@@ -286,12 +291,24 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 		return -1;
 	}
 
-	get_field(p, elem, "compressed", &image->compressed);
+	if ((compressed = get_field_string(p, elem, "compressed")) != NULL) {
+		if (!strcmp(compressed, "zlib")) {
+			image->compressed = COMPRESSED_ZLIB;
+		} else if (!strcmp(compressed, "zstd")) {
+			image->compressed = COMPRESSED_ZSTD;
+		} else {
+			ERROR("compressed argument: '%s' unknown", compressed);
+			return -1;
+		}
+	} else {
+		get_field(p, elem, "compressed", &image->compressed);
+	}
 	get_field(p, elem, "installed-directly", &image->install_directly);
 	get_field(p, elem, "preserve-attributes", &image->preserve_attributes);
 	get_field(p, elem, "install-if-different", &image->id.install_if_different);
 	get_field(p, elem, "install-if-higher", &image->id.install_if_higher);
 	get_field(p, elem, "encrypted", &image->is_encrypted);
+	GET_FIELD_STRING(p, elem, "ivt", image->ivt_ascii);
 
 	return 0;
 }
@@ -330,12 +347,13 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 		GET_FIELD_STRING(p, elem, "name", partition->volname);
 
 		if (!strlen(partition->type))
-			strncpy(partition->type, "ubipartition", sizeof(partition->type));
+			strlcpy(partition->type, "ubipartition", sizeof(partition->type));
 		partition->is_partitioner = 1;
 
 		partition->provided = 1;
 
-		if (!strlen(partition->volname) || !strlen(partition->device)) {
+		if ((!strlen(partition->volname) && !strcmp(partition->type, "ubipartition")) ||
+				!strlen(partition->device)) {
 			ERROR("Partition incompleted in description file");
 			free_image(partition);
 			return -1;
@@ -343,8 +361,10 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 
 		get_field(p, elem, "size", &partition->partsize);
 
+		add_properties(p, elem, partition);
+
 		TRACE("Partition: %s new size %lld bytes",
-			partition->volname,
+			!strcmp(partition->type, "ubipartition") ? partition->volname : partition->device,
 			partition->partsize);
 
 		LIST_INSERT_HEAD(&swcfg->images, partition, next);
@@ -427,8 +447,6 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg,
 	struct img_type *script;
 	struct img_type dummy;
 
-	memset(&dummy, 0, sizeof(dummy));
-
 	setting = find_node(p, cfg, "uboot", swcfg);
 
 	if (setting == NULL) {
@@ -443,6 +461,8 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg,
 
 		if (!elem)
 			continue;
+
+		memset(&dummy, 0, sizeof(dummy));
 
 		/*
 		 * Check for mandatory field

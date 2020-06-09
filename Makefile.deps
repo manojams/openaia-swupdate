@@ -14,6 +14,10 @@ ifeq ($(HAVE_LIBCURL),)
 export HAVE_LIBCURL = y
 endif
 
+ifeq ($(HAVE_LIBFDISK),)
+export HAVE_LIBFDISK = y
+endif
+
 ifeq ($(HAVE_LIBGPIOD),)
 export HAVE_LIBGPIOD = y
 endif
@@ -36,6 +40,10 @@ endif
 
 ifeq ($(HAVE_ZLIB),)
 export HAVE_ZLIB = y
+endif
+
+ifeq ($(HAVE_ZSTD),)
+export HAVE_ZSTD = y
 endif
 
 ifeq ($(HAVE_LIBUBOOTENV),)

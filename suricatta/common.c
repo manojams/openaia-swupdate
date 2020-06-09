@@ -4,7 +4,9 @@
  *
  * SPDX-License-Identifier:     GPL-2.0-or-later
  */
+#include <unistd.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <swupdate_dict.h>
 #include <channel.h>
 #include <util.h>
@@ -40,6 +42,9 @@ void suricatta_channel_settings(void *elem, channel_data_t *chan)
 	GET_FIELD_STRING_RESET(LIBCFG_PARSER, elem, "proxy", tmp);
 	if (strlen(tmp))
 		SETSTRING(chan->proxy, tmp);
+	GET_FIELD_STRING_RESET(LIBCFG_PARSER, elem, "interface", tmp);
+	if (strlen(tmp))
+		SETSTRING(chan->iface, tmp);
 }
 
 server_op_res_t map_channel_retcode(channel_op_res_t response)
@@ -65,4 +70,27 @@ server_op_res_t map_channel_retcode(channel_op_res_t response)
 		return SERVER_OK;
 	}
 	return SERVER_EERR;
+}
+
+struct json_object *server_tokenize_msg(char *buf, size_t size)
+{
+
+	struct json_tokener *json_tokenizer = json_tokener_new();
+	enum json_tokener_error json_res;
+	struct json_object *json_root;
+	do {
+		json_root = json_tokener_parse_ex(
+		    json_tokenizer, buf, size);
+	} while ((json_res = json_tokener_get_error(json_tokenizer)) ==
+		 json_tokener_continue);
+	if (json_res != json_tokener_success) {
+		ERROR("Error while parsing channel's returned JSON data: %s",
+		      json_tokener_error_desc(json_res));
+		json_tokener_free(json_tokenizer);
+		return NULL;
+	}
+
+	json_tokener_free(json_tokenizer);
+
+	return json_root;
 }

@@ -69,8 +69,10 @@ copy_data(struct archive *ar, struct archive *aw)
 static void *
 extract(void *p)
 {
+#ifdef CONFIG_LOCALE
 	locale_t archive_locale;
 	locale_t old_locale;
+#endif
 	struct archive *a;
 	struct archive *ext = NULL;
 	struct archive_entry *entry = NULL;
@@ -79,7 +81,9 @@ extract(void *p)
 	struct extract_data *data = (struct extract_data *)p;
 	flags = data->flags;
 	int exitval = -EFAULT;
+	char *FIFO = NULL;
 
+#ifdef CONFIG_LOCALE
 	/*
 	 * Enable system locale - change from the standard (C) to system locale.
 	 * This allows libarchive (in case it is activated) to handle filenames.
@@ -93,6 +97,7 @@ extract(void *p)
 	 */
 	archive_locale = newlocale(LC_CTYPE_MASK, "", (locale_t)0);
 	old_locale = uselocale(archive_locale);
+#endif
 
 	a = archive_read_new();
 	if (!a) {
@@ -119,8 +124,13 @@ extract(void *p)
 	 * Enabling bzip2 is more expensive because the libbz2 library
 	 * isn't very well factored.
 	 */
-	char* FIFO = alloca(strlen(get_tmpdir())+strlen(FIFO_FILE_NAME)+1);
-	sprintf(FIFO, "%s%s", get_tmpdir(), FIFO_FILE_NAME);
+	if  (asprintf(&FIFO, "%s%s", get_tmpdir(), FIFO_FILE_NAME) ==
+		ENOMEM_ASPRINTF) {
+		ERROR("Path too long: %s", get_tmpdir());
+		exitval = -ENOMEM;
+		goto out;
+	}
+
 	if ((r = archive_read_open_filename(a, FIFO, 4096))) {
 		ERROR("archive_read_open_filename(): %s %d",
 		    archive_error_string(a), r);
@@ -172,7 +182,11 @@ out:
 		archive_read_free(a);
 	}
 
+	free(FIFO);
+
+#ifdef CONFIG_LOCALE
 	uselocale(old_locale);
+#endif
 	data->exitval = exitval;
 	pthread_exit(NULL);
 }
@@ -190,27 +204,33 @@ static int install_archive_image(struct img_type *img,
 	int use_mount = (strlen(img->device) && strlen(img->filesystem)) ? 1 : 0;
 	int is_mounted = 0;
 	int exitval = -EFAULT;
-
-	char* DATADST_DIR = alloca(strlen(get_tmpdir())+strlen(DATADST_DIR_SUFFIX)+1);
-	sprintf(DATADST_DIR, "%s%s", get_tmpdir(), DATADST_DIR_SUFFIX);
-
-	char * FIFO = alloca(strlen(get_tmpdir())+strlen(FIFO_FILE_NAME)+1);
-	sprintf(FIFO, "%s%s", get_tmpdir(), FIFO_FILE_NAME);
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	char *DATADST_DIR = NULL;
+	char *FIFO = NULL;
 
 	if (strlen(img->path) == 0) {
 		TRACE("Missing path attribute");
-		return -1;
+		return -EINVAL;
 	}
+
+	if ((asprintf(&DATADST_DIR, "%s%s", get_tmpdir(), DATADST_DIR_SUFFIX) ==
+		ENOMEM_ASPRINTF) ||
+		(asprintf(&FIFO, "%s%s", get_tmpdir(), FIFO_FILE_NAME) ==
+		ENOMEM_ASPRINTF)) {
+		ERROR("Path too long: %s", get_tmpdir());
+		exitval = -ENOMEM;
+		goto out;
+	}
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
 	if (use_mount) {
 		ret = swupdate_mount(img->device, DATADST_DIR, img->filesystem);
 		if (ret) {
 			ERROR("Device %s with filesystem %s cannot be mounted",
 				img->device, img->filesystem);
-			return -1;
+			exitval = -EINVAL;
+			goto out;
 		}
 
 		is_mounted = 1;
@@ -238,6 +258,20 @@ static int install_archive_image(struct img_type *img,
 		ERROR("Failed to determine current working directory");
 		pwd[0] = '\0';
 		goto out;
+	}
+
+	/*
+	 * Check if path must be created
+	 */
+	char* make_path;
+	make_path = dict_get_value(&img->properties, "create-destination");
+	if (make_path != NULL && strcmp(make_path, "true") == 0) {
+		ret = mkpath(path, 0755);
+		if (ret < 0) {
+			ERROR("I cannot create path %s: %s", path, strerror(errno));
+			exitval = -EFAULT;
+			goto out;
+		}
 	}
 
 	/*
@@ -312,7 +346,8 @@ out:
 		}
 	}
 
-	unlink(FIFO);
+	if (FIFO)
+		unlink(FIFO);
 
 	if (is_mounted) {
 		ret = swupdate_umount(DATADST_DIR);
@@ -320,6 +355,9 @@ out:
 			TRACE("Failed to unmount directory %s", DATADST_DIR);
 		}
 	}
+
+	free(DATADST_DIR);
+	free(FIFO);
 
 	return exitval;
 }

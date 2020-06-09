@@ -4,6 +4,7 @@ SWUpdate - Software Update for Embedded Systems
 ===============================================
 
 [![Build Status](https://travis-ci.org/sbabic/swupdate.svg?branch=master)](https://travis-ci.org/sbabic/swupdate)
+[![Coverity Scan Build Status](https://scan.coverity.com/projects/20753/badge.svg)](https://scan.coverity.com/projects/20753)
 
 SWUpdate is a Linux Update agent with the goal to
 provide an efficient and safe way to update
@@ -40,6 +41,8 @@ Here a short list of the main features:
 - Allow custom handlers for installing FPGA firmware, microcontroller firmware via custom protocols.
 - Power-Off safe
 - Hardware / Software compatibility.
+
+More on http://sbabic.github.io/swupdate/swupdate.html
 
 Different components of this software are under different licenses (a mix
 of MIT, GPLv2 and GPLv2+). License information for any file is either explicitly stated
