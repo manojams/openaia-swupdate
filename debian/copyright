@@ -167,11 +167,11 @@ Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
 License:   GPL-2+
 
-Files:     debian/swupdate
+Files:     debian/swupdate.init
            debian/swupdate*.service
            debian/swupdate-usb.rules
            debian/swupdate.sh
-           debian/swupdate.socket.tmpl
+           debian/swupdate.socket
            debian/tmpfiles-swupdate.conf
 Copyright: Copyright (C) 2015 Stefano Babic <sbabic@denx.de>
 License:   Expat
