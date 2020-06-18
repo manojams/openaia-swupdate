@@ -167,6 +167,15 @@ Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
 License:   GPL-2+
 
+Files:     debian/swupdate
+           debian/swupdate*.service
+           debian/swupdate-usb.rules
+           debian/swupdate.sh
+           debian/swupdate.socket.tmpl
+           debian/tmpfiles-swupdate.conf
+Copyright: Copyright (C) 2015 Stefano Babic <sbabic@denx.de>
+License:   Expat
+
 License:   GPL-2+ with OpenSSL exception
  This package is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
