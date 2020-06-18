@@ -33,7 +33,7 @@ NAME="swupdate"
 DAEMON=/usr/lib/swupdate/swupdate.sh
 PIDFILE=/var/run/$NAME.pid
 
-. /etc/init.d/functions || exit 1
+. /lib/lsb/init-functions || exit 1
 
 # Exit if the package is not installed
 [ -x "$DAEMON" ] || exit 0
