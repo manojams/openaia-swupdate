@@ -6,4 +6,4 @@ After=swupdate.service
 ExecStart=/usr/bin/swupdate-progress -r -w
 
 [Install]
-WantedBy=swupdate.service
+WantedBy=multi-user.target
