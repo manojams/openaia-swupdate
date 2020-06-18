@@ -13,6 +13,9 @@ override_dh_auto_configure:
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_SWUFORWARDER_HANDLER=y >> configs/debian_defconfig
 endif
+	echo CONFIG_EXTRA_CFLAGS=\"$(CFLAGS) $(CPPFLAGS)\" >> configs/debian_defconfig
+	echo CONFIG_EXTRA_LDFLAGS=\"$(LDFLAGS)\"           >> configs/debian_defconfig
+	echo CONFIG_EXTRA_LDLIBS=\"$(LDLIBS)\"             >> configs/debian_defconfig
 	$(MAKE) debian_defconfig
 
 override_dh_auto_build:
