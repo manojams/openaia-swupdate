@@ -1,17 +1,24 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+export HAVE_LUA=n
 ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
 export LUA_VERSION=5.2
 export LUA_MODNAME=lua_swupdate
 export PKG_NAME=swupdate
 export DH_WITH=--with lua
+export HAVE_LUA=y
 endif
 
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_SWUFORWARDER_HANDLER=y >> configs/debian_defconfig
+endif
+ifneq (,$(LUA_VERSION))
+	echo CONFIG_LUAPKG=\"lua$(LUA_VERSION)\" >> configs/debian_defconfig
+	echo CONFIG_LUASCRIPTHANDLER=y           >> configs/debian_defconfig
+	echo CONFIG_HANDLER_IN_LUA=y             >> configs/debian_defconfig
 endif
 	echo CONFIG_EXTRA_CFLAGS=\"$(CFLAGS) $(CPPFLAGS)\" >> configs/debian_defconfig
 	echo CONFIG_EXTRA_LDFLAGS=\"$(LDFLAGS)\"           >> configs/debian_defconfig
