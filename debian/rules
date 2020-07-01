@@ -26,6 +26,11 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
 endif
 	dh_auto_build
 
+override_dh_installsystemd:
+	dh_installsystemd --no-start
+	dh_installsystemd --name=swupdate-progress
+	dh_installsystemd --name=swupdate-usb@
+
 override_dh_dwz:
 	dh_dwz --no-dwz-multifile
 

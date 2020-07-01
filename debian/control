@@ -37,6 +37,7 @@ Vcs-Git: https://salsa.debian.org/debian/swupdate.git
 
 Package: swupdate
 Architecture: linux-any
+Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Software update framework for embedded systems
  swupdate is a Linux update agent with the goal to provide an efficient and
