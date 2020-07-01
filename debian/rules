@@ -1,11 +1,13 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+export HAVE_LUA=n
 ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
 export LUA_VERSION=5.2
 export LUA_MODNAME=lua_swupdate
 export PKG_NAME=swupdate
 export DH_WITH=--with lua
+export HAVE_LUA=y
 endif
 
 override_dh_auto_configure:
@@ -13,6 +15,14 @@ override_dh_auto_configure:
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_SWUFORWARDER_HANDLER=y >> configs/debian_defconfig
 endif
+ifneq (,$(LUA_VERSION))
+	echo CONFIG_LUAPKG=\"lua$(LUA_VERSION)\" >> configs/debian_defconfig
+	echo CONFIG_LUASCRIPTHANDLER=y           >> configs/debian_defconfig
+	echo CONFIG_HANDLER_IN_LUA=y             >> configs/debian_defconfig
+endif
+	echo CONFIG_EXTRA_CFLAGS=\"$(CFLAGS) $(CPPFLAGS)\" >> configs/debian_defconfig
+	echo CONFIG_EXTRA_LDFLAGS=\"$(LDFLAGS)\"           >> configs/debian_defconfig
+	echo CONFIG_EXTRA_LDLIBS=\"$(LDLIBS)\"             >> configs/debian_defconfig
 	$(MAKE) debian_defconfig
 
 override_dh_auto_build:
@@ -24,7 +34,13 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
 	mv doc/build/man/sysrestart.1 doc/build/man/swupdate-sysrestart.1
 endif
-	dh_auto_build
+	dh_auto_build -- V=1
+
+override_dh_auto_test:
+	dh_auto_test -- V=1
+
+override_dh_auto_install:
+	dh_auto_install -- V=1
 
 override_dh_installsystemd:
 	dh_installsystemd --no-start
