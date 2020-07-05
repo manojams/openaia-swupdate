@@ -1,10 +1,11 @@
-swupdate (2020.04-1) UNRELEASED; urgency=medium
+swupdate (2020.04-1) unstable; urgency=medium
 
   [ Nobuhiro Iwamatsu ]
   * Add d/missing-sources
 
   [ SZ Lin (林上智) ]
   * Bump Standards-Version to 4.5.0
+  * Bump debhelper-compat to 13
   * Add configuration setting of Salsa CI
   * Add a dependency package for CI testing
   * Fix autopkgtest error
@@ -27,7 +28,7 @@ swupdate (2020.04-1) UNRELEASED; urgency=medium
   * Add a backports profile
   * New upstream version 2020.04 (Closes: #948673)
 
- -- Bastian Germann <bastiangermann@fishpost.de>  Tue, 09 Jun 2020 12:09:01 +0200
+ -- SZ Lin (林上智) <szlin@debian.org>  Sun, 05 Jul 2020 20:01:25 +0800
 
 swupdate (2019.04+git20190903.c3ef374-1~exp1) experimental; urgency=medium
 
