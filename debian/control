@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Stefano Babic <sbabic@denx.de>
 Uploaders: SZ Lin (林上智) <szlin@debian.org>,
            Nobuhiro Iwamatsu <iwamatsu@debian.org>
-Build-Depends: debhelper-compat (= 12),
+Build-Depends: debhelper-compat (= 13),
                dh-exec,
                dh-lua <!nolua>,
                liblua5.2-dev <!nolua>,
