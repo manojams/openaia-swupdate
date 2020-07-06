@@ -9,6 +9,9 @@ export PKG_NAME=swupdate
 export DH_WITH=--with lua
 export HAVE_LUA=y
 endif
+ifneq (,$(findstring mips,$(DEB_HOST_ARCH)))
+export DEB_BUILD_MAINT_OPTIONS:=$(DEB_BUILD_MAINT_OPTIONS) nocheck
+endif
 
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
