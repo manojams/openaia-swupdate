@@ -20,6 +20,8 @@ Build-Depends: debhelper-compat (= 13),
                libzmq3-dev,
                zlib1g-dev,
                libzstd-dev,
+               libmtd-dev <!pkg.swupdate.bpo>,
+               libubi-dev <!pkg.swupdate.bpo>,
                libwebsockets-dev (>= 3.2.0) <!pkg.swupdate.bpo>,
                liburiparser-dev <!pkg.swupdate.bpo>,
                libcmocka-dev,
@@ -39,6 +41,7 @@ Package: swupdate
 Architecture: linux-any
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Built-Using: ${Built-Using}
 Description: Software update framework for embedded systems
  swupdate is a Linux update agent with the goal to provide an efficient and
  safe way to update an embedded system.

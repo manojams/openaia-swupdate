@@ -1,1 +1,2 @@
 use-gcc-compiler.diff
+mtd-ubi-use-include-dir-that-upstream-suggests.diff
