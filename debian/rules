@@ -60,7 +60,7 @@ override_dh_auto_install:
 override_dh_installsystemd:
 	dh_installsystemd --no-start
 	dh_installsystemd --name=swupdate-progress
-	dh_installsystemd --name=swupdate-usb@
+	dh_installsystemd --no-start --name=swupdate-usb@
 
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 override_dh_gencontrol:
