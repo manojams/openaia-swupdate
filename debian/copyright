@@ -13,7 +13,6 @@ Files:     corelib/channel_curl.c
            corelib/verify_signature.c
            corelib/swupdate_rsa_verify.c
            corelib/swupdate_decrypt.c
-           test/test_crypt.c
            corelib/swupdate_cms_verify.c
            core/cpio_utils.c
            core/swupdate.c
