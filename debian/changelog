@@ -1,3 +1,9 @@
+swupdate (2020.04-2) UNRELEASED; urgency=low
+
+  * Use secure URI in Homepage field.
+
+ -- Debian Janitor <janitor@jelmer.uk>  Thu, 03 Sep 2020 12:14:46 -0000
+
 swupdate (2020.04-1) unstable; urgency=medium
 
   [ Nobuhiro Iwamatsu ]
