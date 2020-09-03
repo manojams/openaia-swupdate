@@ -1,6 +1,8 @@
 swupdate (2020.04-2) UNRELEASED; urgency=low
 
   * Use secure URI in Homepage field.
+  * Remove obsolete field Name from debian/upstream/metadata (already present in
+    machine-readable debian/copyright).
 
  -- Debian Janitor <janitor@jelmer.uk>  Thu, 03 Sep 2020 12:14:46 -0000
 
