@@ -13,7 +13,6 @@ Files:     corelib/channel_curl.c
            corelib/verify_signature.c
            corelib/swupdate_rsa_verify.c
            corelib/swupdate_decrypt.c
-           test/test_crypt.c
            corelib/swupdate_cms_verify.c
            core/cpio_utils.c
            core/swupdate.c
@@ -172,7 +171,7 @@ Files:     debian/swupdate.init
            debian/swupdate.udev
            debian/swupdate.sh
            debian/swupdate.socket
-           debian/swupdate.tmpfile
+           debian/swupdate.tmpfiles
 Copyright: Copyright (C) 2015 Stefano Babic <sbabic@denx.de>
 License:   Expat
 

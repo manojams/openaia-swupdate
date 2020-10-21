@@ -1,8 +1,18 @@
 swupdate (2020.04-2) UNRELEASED; urgency=low
 
+  [ Debian Janitor ]
   * Use secure URI in Homepage field.
   * Remove obsolete field Name from debian/upstream/metadata (already present in
     machine-readable debian/copyright).
+
+  [ Bastian Germann ]
+  * Don't run unit tests on mips platforms
+  * lintian: source-is-missing (line length)
+  * Add MTD/UBI support (Closes: #967850)
+  * dh: Rename .tmpfile to .tmpfiles
+  * Introduce a pkg.swupdate.uboot profile
+  * Don't autostart swupdate-usb
+  * d/copyright: Match test_crypt.c only once
 
  -- Debian Janitor <janitor@jelmer.uk>  Thu, 03 Sep 2020 12:14:46 -0000
 
