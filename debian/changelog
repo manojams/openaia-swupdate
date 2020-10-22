@@ -1,4 +1,4 @@
-swupdate (2020.04-2) UNRELEASED; urgency=low
+swupdate (2020.04-2) unstable; urgency=low
 
   [ Debian Janitor ]
   * Use secure URI in Homepage field.
