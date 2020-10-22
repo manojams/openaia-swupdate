@@ -14,7 +14,7 @@ swupdate (2020.04-2) UNRELEASED; urgency=low
   * Don't autostart swupdate-usb
   * d/copyright: Match test_crypt.c only once
 
- -- Debian Janitor <janitor@jelmer.uk>  Thu, 03 Sep 2020 12:14:46 -0000
+ -- Nobuhiro Iwamatsu <iwamatsu@debian.org>  Thu, 22 Oct 2020 09:02:05 +0900
 
 swupdate (2020.04-1) unstable; urgency=medium
 
