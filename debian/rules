@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic -I/usr/include/p11-kit-1
 export HAVE_LUA=n
 ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
 export LUA_VERSION=5.2
@@ -26,6 +26,9 @@ ifeq (,$(filter pkg.swupdate.uboot,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_GRUBENV_PATH=\"/boot/grub/grubenv\" >> configs/debian_defconfig
 else
 	echo CONFIG_UBOOT=y                             >> configs/debian_defconfig
+endif
+ifneq (,$(filter pkg.swupdate.p11,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_PKCS11=y >> configs/debian_defconfig
 endif
 ifneq (,$(LUA_VERSION))
 	echo CONFIG_LUAPKG=\"lua$(LUA_VERSION)\" >> configs/debian_defconfig
