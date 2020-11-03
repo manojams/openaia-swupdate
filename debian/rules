@@ -9,9 +9,6 @@ export PKG_NAME=swupdate
 export DH_WITH=--with lua
 export HAVE_LUA=y
 endif
-ifneq (,$(findstring mips,$(DEB_HOST_ARCH)))
-export DEB_BUILD_MAINT_OPTIONS:=$(DEB_BUILD_MAINT_OPTIONS) nocheck
-endif
 
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
@@ -52,7 +49,11 @@ endif
 	dh_auto_build -- V=1
 
 override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
+ifeq (,$(findstring mips,$(DEB_HOST_ARCH)))
 	dh_auto_test -- V=1
+endif
+endif
 
 override_dh_auto_install:
 	dh_auto_install -- V=1
@@ -72,10 +73,6 @@ override_dh_dwz:
 
 override_dh_missing:
 	dh_missing --fail-missing
-
-ifneq (,$(filter nocheck,$(DEB_BUILD_PROFILES)))
-override_dh_auto_test:
-endif
 
 %:
 	dh $@ $(DH_WITH)
