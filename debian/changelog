@@ -1,3 +1,10 @@
+swupdate (2020.04-3) UNRELEASED; urgency=medium
+
+  [ Bastian Germann ]
+  * Fix test failed issues on mipsel and mips64el platforms (Closes: #972691)
+
+ -- SZ Lin (林上智) <szlin@debian.org>  Wed, 04 Nov 2020 10:38:19 +0800
+
 swupdate (2020.04-2) unstable; urgency=low
 
   [ Debian Janitor ]
