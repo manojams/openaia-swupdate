@@ -64,12 +64,35 @@ Package: libswupdate-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: ${misc:Depends}
+Depends: ${misc:Depends}, libswupdate0.1 (= ${binary:Version})
 Suggests: swupdate-doc
 Breaks: swupdate-dev (<< 2020.11-1)
 Replaces: swupdate-dev (<< 2020.11-1)
 Description: Development files for swupdate framework
  This package contains the development files for libswupdate.
+ .
+ swupdate is a Linux update agent with the goal to provide an efficient and
+ safe way to update an embedded system.
+ .
+  - Install on embedded media (eMMC, SD, Raw NAND, NOR and SPI-NOR flashes)
+  - Allow delivery single image for multiple devices
+  - Multiple interfaces for getting software
+    1. local storage
+    2. integrated web server
+    3. integrated REST client connector to hawkBit
+    4. remote server download
+  - Software delivered as images, gzipped tarball, etc
+  - Allow custom handlers for installing FPGA/ microcontroller firmware.
+  - Power-Off safe
+
+Package: libswupdate0.1
+Section: libs
+Architecture: any
+Multi-Arch: same
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Library for controlling the swupdate framework
+ This package contains the library libswupdate which is used to control
+ swupdate.
  .
  swupdate is a Linux update agent with the goal to provide an efficient and
  safe way to update an embedded system.
