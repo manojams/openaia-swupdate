@@ -4,7 +4,7 @@ Upstream-Contact: Stefano Babic <sbabic@denx.de>
 Source: https://github.com/sbabic/swupdate/tree/debian
 
 Files:     *
-Copyright: 2014-2019 Stefano Babic <sbabic@denx.de>
+Copyright: 2014-2020 Stefano Babic <sbabic@denx.de>
 License:   GPL-2+
 
 #The upstream changes its license type
@@ -41,9 +41,18 @@ Files:     bindings/lua_swupdate.c
 Copyright: 2008-2018 DENX Software Engineering, Stefano Babic <sbabic@denx.de> 
 License:   LGPL-2.1+
 
+Files:     core/semver.c
+           include/semver.h
+Copyright: 2015-2017 Tomas Aparicio
+License:   Expat
+
+Files:     corelib/swupdate_decrypt_pkcs11.c
+Copyright: 2020, Linutronix GmbH
+License:   GPL-2+
+
 Files:     include/network_ipc.h
            ipc/network_ipc.c
-Copyright: 2008-2017 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
+Copyright: 2008-2020 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
            on behalf of ifm electronic GmbH
 License:   LGPL-2.1+
 
