@@ -60,14 +60,16 @@ Description: Software update framework for embedded systems
   - Allow custom handlers for installing FPGA/ microcontroller firmware.
   - Power-Off safe
 
-Package: swupdate-dev
+Package: libswupdate-dev
 Section: libdevel
-Architecture: linux-any
+Architecture: any
 Multi-Arch: same
 Depends: ${misc:Depends}
 Suggests: swupdate-doc
+Breaks: swupdate-dev (<< 2020.11-1)
+Replaces: swupdate-dev (<< 2020.11-1)
 Description: Development files for swupdate framework
- This package contains the development files for swupdate.
+ This package contains the development files for libswupdate.
  .
  swupdate is a Linux update agent with the goal to provide an efficient and
  safe way to update an embedded system.

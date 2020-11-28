@@ -1,4 +1,4 @@
-usr/lib/*/libswupdate.a
+usr/lib/*/libswupdate.so
 usr/include/progress_ipc.h usr/include
 usr/include/network_ipc.h usr/include
 usr/include/swupdate_status.h usr/include
