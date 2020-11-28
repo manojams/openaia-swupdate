@@ -63,6 +63,7 @@ Description: Software update framework for embedded systems
 Package: swupdate-dev
 Section: libdevel
 Architecture: linux-any
+Multi-Arch: same
 Depends: ${misc:Depends}
 Suggests: swupdate-doc
 Description: Development files for swupdate framework
@@ -107,6 +108,7 @@ Description: Documentation for swupdate framework
 Package: lua-swupdate
 Section: interpreters
 Architecture: linux-any
+Multi-Arch: same
 Build-Profiles: <!nolua>
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: swupdate bindings for the Lua language

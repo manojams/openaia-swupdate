@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic -I/usr/include/p11-kit-1
+export LIBDIR=usr/lib/${DEB_HOST_MULTIARCH}
 export HAVE_LUA=n
 ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
 export LUA_VERSION=5.2
