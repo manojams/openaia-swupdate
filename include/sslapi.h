@@ -16,9 +16,18 @@
  * openSSL is not mandatory
  * Let compile when openSSL is not activated
  */
-#if defined(CONFIG_HASH_VERIFY) || defined(CONFIG_ENCRYPTED_IMAGES) || \
-	defined(CONFIG_CHANNEL_CURL_SSL)
-#if defined(CONFIG_SSL_IMPL_OPENSSL)
+#if defined(CONFIG_HASH_VERIFY) || defined(CONFIG_ENCRYPTED_IMAGES)
+
+#ifdef CONFIG_PKCS11
+#include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/aes.h>
+#include <wolfssl/wolfcrypt/wc_pkcs11.h>
+// Exclude p11-kit's pkcs11.h to prevent conflicting with wolfssl's
+#define PKCS11_H 1
+#include <p11-kit/uri.h>
+#endif
+
+#ifdef CONFIG_SSL_IMPL_OPENSSL
 #include <openssl/bio.h>
 #include <openssl/objects.h>
 #include <openssl/err.h>
@@ -28,19 +37,59 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/aes.h>
+#include <openssl/opensslv.h>
+#elif defined(CONFIG_SSL_IMPL_WOLFSSL)
+#include <wolfssl/options.h>
+#include <wolfssl/openssl/bio.h>
+#include <wolfssl/openssl/objects.h>
+#include <wolfssl/openssl/err.h>
+#include <wolfssl/openssl/x509.h>
+#include <wolfssl/openssl/x509v3.h>
+#include <wolfssl/openssl/pem.h>
+#include <wolfssl/openssl/evp.h>
+#include <wolfssl/openssl/hmac.h>
+#include <wolfssl/openssl/aes.h>
+#include <wolfssl/openssl/opensslv.h>
+#endif
+
+#if defined(CONFIG_SSL_IMPL_OPENSSL) || defined(CONFIG_SSL_IMPL_WOLFSSL)
 
 #ifdef CONFIG_SIGALG_CMS
 #if defined(LIBRESSL_VERSION_NUMBER)
 #error "LibreSSL does not support CMS, please select RSA PKCS"
 #else
 #include <openssl/cms.h>
-#endif
-#endif
 
-#include <openssl/opensslv.h>
+static inline uint32_t SSL_X509_get_extension_flags(X509 *x)
+{
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+	return x->ex_flags;
+#else
+	return X509_get_extension_flags(x);
+#endif
+}
 
+static inline uint32_t SSL_X509_get_extended_key_usage(X509 *x)
+{
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+	return x->ex_xkusage;
+#else
+	return X509_get_extended_key_usage(x);
+#endif
+}
+
+#endif
+#endif /* CONFIG_SIGALG_CMS */
+
+#ifdef CONFIG_SSL_IMPL_WOLFSSL
+#define EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx, len) (1)
+
+#define X509_PURPOSE_CODE_SIGN EXTKEYUSE_CODESIGN
+#define SSL_PURPOSE_EMAIL_PROT EXTKEYUSE_EMAILPROT
+#else
 #define X509_PURPOSE_CODE_SIGN (X509_PURPOSE_MAX + 1)
 #define SSL_PURPOSE_EMAIL_PROT X509_PURPOSE_SMIME_SIGN
+#endif
 #define SSL_PURPOSE_CODE_SIGN  X509_PURPOSE_CODE_SIGN
 #define SSL_PURPOSE_DEFAULT SSL_PURPOSE_EMAIL_PROT
 
@@ -49,7 +98,13 @@ struct swupdate_digest {
 	EVP_PKEY_CTX *ckey;	/* this is used for RSA key */
 	X509_STORE *certs;	/* this is used if CMS is set */
 	EVP_MD_CTX *ctx;
-#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+#ifdef CONFIG_PKCS11
+	unsigned char last_decr[AES_BLOCK_SIZE + 1];
+	P11KitUri *p11uri;
+	Aes ctxdec;
+	Pkcs11Dev pkdev;
+	Pkcs11Token pktoken;
+#elif OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
 	EVP_CIPHER_CTX ctxdec;
 #else
 	EVP_CIPHER_CTX *ctxdec;
@@ -79,24 +134,6 @@ struct swupdate_digest {
 #define swupdate_crypto_init()
 #endif
 
-static inline uint32_t SSL_X509_get_extension_flags(X509 *x)
-{
-#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-	return x->ex_flags;
-#else
-	return X509_get_extension_flags(x);
-#endif
-}
-
-static inline uint32_t SSL_X509_get_extended_key_usage(X509 *x)
-{
-#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-	return x->ex_xkusage;
-#else
-	return X509_get_extended_key_usage(x);
-#endif
-}
-
 #elif defined(CONFIG_SSL_IMPL_MBEDTLS)
 #include <mbedtls/md.h>
 #include <mbedtls/pk.h>
@@ -112,9 +149,15 @@ struct swupdate_digest {
 #ifdef CONFIG_SIGNED_IMAGES
 	mbedtls_pk_context mbedtls_pk_context;
 #endif /* CONFIG_SIGNED_IMAGES */
-#ifdef CONFIG_ENCRYPTED_IMAGES
+#ifdef CONFIG_PKCS11
+	unsigned char last_decr[AES_BLOCK_SIZE + 1];
+	P11KitUri *p11uri;
+	Aes ctxdec;
+	Pkcs11Dev pkdev;
+	Pkcs11Token pktoken;
+#elif defined(CONFIG_ENCRYPTED_IMAGES)
 	mbedtls_cipher_context_t mbedtls_cipher_context;
-#endif /* CONFIG_ENCRYPTED_IMAGES */
+#endif /* CONFIG_PKCS11 */
 };
 
 #else /* CONFIG_SSL_IMPL */
@@ -122,7 +165,6 @@ struct swupdate_digest {
 #endif /* CONFIG_SSL_IMPL */
 #else
 #define swupdate_crypto_init()
-#define AES_BLOCK_SIZE	16
 #endif
 
 #if defined(CONFIG_HASH_VERIFY)
@@ -151,7 +193,7 @@ int swupdate_HASH_compare(const unsigned char *hash1, const unsigned char *hash2
 #endif
 
 #ifdef CONFIG_ENCRYPTED_IMAGES
-struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, unsigned char *iv);
+struct swupdate_digest *swupdate_DECRYPT_init(unsigned char *key, char keylen, unsigned char *iv);
 int swupdate_DECRYPT_update(struct swupdate_digest *dgst, unsigned char *buf, 
 				int *outlen, const unsigned char *cryptbuf, int inlen);
 int swupdate_DECRYPT_final(struct swupdate_digest *dgst, unsigned char *buf,
@@ -162,7 +204,7 @@ void swupdate_DECRYPT_cleanup(struct swupdate_digest *dgst);
  * Note: macro for swupdate_DECRYPT_init is
  * just to avoid compiler warnings
  */
-#define swupdate_DECRYPT_init(key, iv) (((key != NULL) | (ivt != NULL)) ? NULL : NULL)
+#define swupdate_DECRYPT_init(key, keylen, iv) (((key != NULL) | (ivt != NULL)) ? NULL : NULL)
 #define swupdate_DECRYPT_update(p, buf, len, cbuf, inlen) (-1)
 #define swupdate_DECRYPT_final(p, buf, len) (-1)
 #define swupdate_DECRYPT_cleanup(p)

@@ -27,9 +27,11 @@
 #include "network_ipc.h"
 #include "network_interface.h"
 #include "installer.h"
+#include "installer_priv.h"
 #include "swupdate.h"
 #include "pctl.h"
 #include "generated/autoconf.h"
+#include "state.h"
 
 #ifdef CONFIG_SYSTEMD
 #include <systemd/sd-daemon.h>
@@ -53,6 +55,43 @@ static struct msglist notifymsgs;
 static unsigned long nrmsgs = 0;
 
 static pthread_mutex_t msglock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool is_selection_allowed(const char *software_set, char *running_mode,
+				 struct dict const *acceptedlist)
+{
+	char *swset = NULL;
+	struct dict_list *sets;
+	struct dict_list_elem *selection;
+	bool allowed = false;
+
+	/*
+	 * No attempt to change software set
+	 */
+	if (!strlen(software_set) || !strlen(running_mode))
+		return true;
+
+	if (ENOMEM_ASPRINTF ==
+		asprintf(&swset, "%s,%s", software_set, running_mode)) {
+			 ERROR("OOM generating selection string");
+			 return false;
+	}
+	sets = dict_get_list((struct dict *)acceptedlist, "accepted");
+	if (sets && swset) {
+		LIST_FOREACH(selection, sets, next) {
+			if (!strcmp(swset, selection->value)) {
+				allowed = true;
+			}
+		}
+		free(swset);
+	}
+
+	if (allowed) {
+		INFO("Accepted selection %s,%s", software_set, running_mode);
+	}else 
+		ERROR("Selection %s,%s is not allowed, rejected !",
+		      software_set, running_mode); 
+	return allowed;
+}
 
 static void clean_msg(char *msg, char drop)
 {
@@ -213,6 +252,7 @@ void *network_thread (void *data)
 	int pipe;
 	fd_set pipefds;
 	struct timeval tv;
+	update_state_t value;
 
 	if (!instp) {
 		TRACE("Fatal error: Network thread aborting...");
@@ -260,7 +300,7 @@ void *network_thread (void *data)
 			switch (msg.type) {
 			case POST_UPDATE:
 				if (postupdate(get_swupdate_cfg(),
-							   msg.data.instmsg.len > 0 ? msg.data.instmsg.buf : NULL) == 0) {
+							   msg.data.procmsg.len > 0 ? msg.data.procmsg.buf : NULL) == 0) {
 					msg.type = ACK;
 					sprintf(msg.data.msg, "Post-update actions successfully executed.");
 				} else {
@@ -276,14 +316,14 @@ void *network_thread (void *data)
 				 *  the payload
 				 */
 
-				pipe = pctl_getfd_from_type(msg.data.instmsg.source);
+				pipe = pctl_getfd_from_type(msg.data.procmsg.source);
 				if (pipe < 0) {
 					ERROR("Cannot find channel for requested process");
 					msg.type = NACK;
 					break;
 				}
 				TRACE("Received Message for %s",
-					pctl_getname_from_type(msg.data.instmsg.source));
+					pctl_getname_from_type(msg.data.procmsg.source));
 				if (fcntl(pipe, F_GETFL) < 0 && errno == EBADF) {
 					ERROR("Pipe not available or closed: %d", pipe);
 					msg.type = NACK;
@@ -313,10 +353,10 @@ void *network_thread (void *data)
 				FD_ZERO(&pipefds);
 				FD_SET(pipe, &pipefds);
 				tv.tv_usec = 0;
-				if (!msg.data.instmsg.timeout)
+				if (!msg.data.procmsg.timeout)
 					tv.tv_sec = DEFAULT_INTERNAL_TIMEOUT;
 				else
-					tv.tv_sec = msg.data.instmsg.timeout;
+					tv.tv_sec = msg.data.procmsg.timeout;
 				ret = select(pipe + 1, &pipefds, NULL, NULL, &tv);
 
 				/*
@@ -342,34 +382,26 @@ void *network_thread (void *data)
 
 				break;
 			case REQ_INSTALL:
-			case REQ_INSTALL_DRYRUN:
 				TRACE("Incoming network request: processing...");
 				if (instp->status == IDLE) {
 					instp->fd = ctrlconnfd;
-					instp->source = msg.data.instmsg.source;
-					instp->len = min(msg.data.instmsg.len, sizeof(instp->info));
+					instp->req = msg.data.instmsg.req;
+					if (is_selection_allowed(instp->req.software_set,
+								 instp->req.running_mode,
+								 &instp->software->accepted_set)) {
+						/*
+						 * Prepare answer
+						 */
+						msg.type = ACK;
 
-					/*
-					 * Communicate if a dryrun is asked and set it
-					 */
-					if (msg.type == REQ_INSTALL_DRYRUN)
-						instp->dry_run = 1;
-					else
-						instp->dry_run = 0;
+						/* Drop all old notification from last run */
+						cleanum_msg_list();
 
-					memcpy(instp->info, msg.data.instmsg.buf,
-						instp->len);
+						/* Wake-up the installer */
+						pthread_cond_signal(&stream_wkup);
+					} else
+						msg.type = NACK;
 
-					/*
-					 * Prepare answer
-					 */
-					msg.type = ACK;
-
-					/* Drop all old notification from last run */
-					cleanum_msg_list();
-
-					/* Wake-up the installer */
-					pthread_cond_signal(&stream_wkup);
 				} else {
 					msg.type = NACK;
 					sprintf(msg.data.msg, "Installation in progress");
@@ -400,9 +432,18 @@ void *network_thread (void *data)
 
 				break;
 			case SET_AES_KEY:
+#ifndef CONFIG_PKCS11
 				msg.type = ACK;
 				if (set_aes_key(msg.data.aeskeymsg.key_ascii, msg.data.aeskeymsg.ivt_ascii))
+#endif
 					msg.type = NACK;
+				break;
+			case SET_UPDATE_STATE:
+				value = *(update_state_t *)msg.data.msg;
+				msg.type = (is_valid_state(value) &&
+					    save_state((char *)STATE_KEY, value) == SERVER_OK)
+					       ? ACK
+					       : NACK;
 				break;
 			default:
 				msg.type = NACK;

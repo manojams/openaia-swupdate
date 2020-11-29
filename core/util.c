@@ -29,12 +29,18 @@
 #include "generated/autoconf.h"
 
 /*
- * key  is 256 bit for aes_256
- * ivt  is 128 bit
+ * key    is 256 bit for max aes_256
+ * keylen is the actual aes key length
+ * ivt    is 128 bit
  */
 struct decryption_key {
-	unsigned char key[32];
-	unsigned char ivt[16];
+#ifdef CONFIG_PKCS11
+	char * key;
+#else
+	unsigned char key[AES_256_KEY_LEN];
+#endif
+	char keylen;
+	unsigned char ivt[AES_BLK_SIZE];
 };
 
 static struct decryption_key *aes_key = NULL;
@@ -54,24 +60,27 @@ static char* TMPDIRSCRIPT = NULL;
  * Convert a hash as hexa string into a sequence of bytes
  * hash must be an array of 32 bytes as specified by SHA256
  */
-int ascii_to_bin(unsigned char *hash, const char *s, size_t len)
+int ascii_to_bin(unsigned char *dest, size_t dstlen, const char *src)
 {
 	unsigned int i;
 	unsigned int val;
+	size_t srclen;
 
-	if (s == NULL) {
+	if (src == NULL) {
 		return 0;
 	}
 
-	if (len % 2)
+	srclen = strlen(src);
+
+	if (srclen % 2)
 		return -EINVAL;
-	if (strlen(s) == len) {
-		for (i = 0; i < len; i+= 2) {
-			val = from_ascii(&s[i], 2, LG_16);
-			hash[i / 2] = val;
+	if (srclen == 2 * dstlen) {
+		for (i = 0; i < dstlen; i++) {
+			val = from_ascii(&src[i*2], 2, LG_16);
+			dest[i] = val;
 		}
 	} else
-		return -1;
+		return -EINVAL;
 
 	return 0;
 }
@@ -463,7 +472,7 @@ from_ascii (char const *where, size_t digs, unsigned logbase)
 
 int ascii_to_hash(unsigned char *hash, const char *s)
 {
-	return ascii_to_bin(hash, s, 64);
+	return ascii_to_bin(hash, SHA256_HASH_LENGTH, s);
 }
 
 void hash_to_ascii(const unsigned char *hash, char *str)
@@ -553,6 +562,12 @@ unsigned char *get_aes_key(void) {
 	return aes_key->key;
 }
 
+char get_aes_keylen(void) {
+	if (!aes_key)
+		return -1;
+	return aes_key->keylen;
+}
+
 unsigned char *get_aes_ivt(void) {
 	if (!aes_key)
 		return NULL;
@@ -562,6 +577,7 @@ unsigned char *get_aes_ivt(void) {
 int set_aes_key(const char *key, const char *ivt)
 {
 	int ret;
+	size_t keylen;
 
 	/*
 	 * Allocates the global structure just once
@@ -572,8 +588,27 @@ int set_aes_key(const char *key, const char *ivt)
 			return -ENOMEM;
 	}
 
-	ret = ascii_to_bin(aes_key->key,  key, sizeof(aes_key->key) * 2) |
-	      ascii_to_bin(aes_key->ivt,  ivt, sizeof(aes_key->ivt) * 2);
+	ret = ascii_to_bin(aes_key->ivt, sizeof(aes_key->ivt), ivt);
+#ifdef CONFIG_PKCS11
+	keylen = strlen(key) + 1;
+	aes_key->key = malloc(keylen);
+	if (!aes_key->key)
+		return -ENOMEM;
+	strncpy(aes_key->key, key, keylen);
+#else
+	keylen = strlen(key);
+	switch (keylen) {
+	case AES_128_KEY_LEN * 2:
+	case AES_192_KEY_LEN * 2:
+	case AES_256_KEY_LEN * 2:
+		// valid hex string size for AES 128/192/256
+		aes_key->keylen = keylen / 2;
+		break;
+	default:
+		return -EINVAL;
+	}
+	ret |= ascii_to_bin(aes_key->key, aes_key->keylen, key);
+#endif
 
 	if (ret) {
 		return -EINVAL;
@@ -589,7 +624,7 @@ int set_aes_ivt(const char *ivt)
 	if (!aes_key)
 		return -EFAULT;
 
-	ret = ascii_to_bin(aes_key->ivt,  ivt, sizeof(aes_key->ivt) * 2);
+	ret = ascii_to_bin(aes_key->ivt, sizeof(aes_key->ivt), ivt);
 
 	if (ret) {
 		return -EINVAL;

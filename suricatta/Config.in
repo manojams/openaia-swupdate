@@ -1,5 +1,6 @@
 menuconfig SURICATTA
 	bool "Suricatta"
+	depends on HAVE_LIBCURL
 	help
 	  Suricatta is a daemon mode of SWUpdate.
 
@@ -21,40 +22,9 @@ menu "Features"
 config SURICATTA_SSL
 	bool "SSL support"
 	default n
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
 	select CHANNEL_CURL_SSL
 	help
 	  Enable SSL and checksum verification support in suricatta.
-
-comment "SSL support needs an SSL implementation"
-	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_MBEDTLS
-
-choice
-	prompt "Update Status Storage"
-	help
-	  Place for suricatta to persistently store the update
-	  status for, e.g., communicating it to the server after
-	  a reboot.
-
-config SURICATTA_STATE_CHOICE_NONE
-	bool "None"
-	help
-	  Do not store update status.
-
-config SURICATTA_STATE_CHOICE_BOOTLOADER
-	bool "Bootloader"
-	help
-	  Store update status in Bootloader's environment.
-	  Specify Bootloader environment variable name to store update status in.
-
-endchoice
-
-config SURICATTA_STATE_BOOTLOADER
-	string "Store Update Status in Bootloader Environment variable"
-	default "ustate"
-	depends on SURICATTA_STATE_CHOICE_BOOTLOADER
-	help
-	  Store update information in Bootloader's environment.
 
 endmenu
 
@@ -69,7 +39,6 @@ choice
 
 config SURICATTA_HAWKBIT
 	bool "hawkBit support"
-	depends on HAVE_LIBCURL
 	depends on HAVE_JSON_C
 	select CHANNEL_CURL
 	select JSON
@@ -77,23 +46,22 @@ config SURICATTA_HAWKBIT
 	  Support for hawkBit server.
 	  https://projects.eclipse.org/projects/iot.hawkbit
 
-comment "hawkBit support needs libcurl, json-c"
-	depends on !HAVE_LIBCURL || !HAVE_JSON_C
+comment "hawkBit support needs json-c"
+	depends on !HAVE_JSON_C
 
 config SURICATTA_GENERAL
 	bool "General HTTP support"
-	depends on HAVE_LIBCURL
 	select CHANNEL_CURL
 	help
 	  Support for Simple HTTP coded server
 	  The server uses HTTP return codes to detect if an update
 	  is available. See documentation for more details.
 
-comment "General HTTP backend support needs libcurl"
-	depends on !HAVE_LIBCURL
-
 endchoice
 
 endmenu
 
 endif
+
+comment "Suricatta daemon support needs libcurl"
+	depends on !HAVE_LIBCURL

@@ -13,10 +13,6 @@ config HAVE_FREEBSD
 	bool
 	option env="HAVE_FREEBSD"
 
-config HAVE_DOT_CONFIG
-	bool
-	default y
-
 config HAVE_LUA
 	bool
 	option env="HAVE_LUA"
@@ -36,6 +32,10 @@ config HAVE_LIBCURL
 config HAVE_LIBFDISK
 	bool
 	option env="HAVE_LIBFDISK"
+
+config HAVE_LIBBLKID
+	bool
+	option env="HAVE_LIBBLKID"
 
 config HAVE_LIBGPIOD
 	bool
@@ -77,9 +77,17 @@ config HAVE_LIBCRYPTO
 	bool
 	option env="HAVE_LIBCRYPTO"
 
+config HAVE_WOLFSSL
+	bool
+	option env="HAVE_WOLFSSL"
+
 config HAVE_MBEDTLS
 	bool
 	option env="HAVE_MBEDTLS"
+
+config HAVE_P11KIT
+	bool
+	option env="HAVE_P11KIT"
 
 config HAVE_JSON_C
 	bool
@@ -347,6 +355,10 @@ choice
 		bool "OpenSSL"
 		depends on HAVE_LIBSSL
 
+	config SSL_IMPL_WOLFSSL
+		bool "wolfSSL (with OpenSSL compatibility layer)"
+		depends on HAVE_WOLFSSL
+
 	config SSL_IMPL_MBEDTLS
 		bool "mbedTLS"
 		depends on HAVE_MBEDTLS
@@ -369,11 +381,9 @@ config DOWNLOAD_SSL
 	bool "Enable SSL support for image downloading"
 	default n
 	depends on DOWNLOAD
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
 	select CHANNEL_CURL_SSL
 	help
-	  Enable SSL and checksum verification support in channels
-	  using libcurl.
+	  Enable SSL support in channels using libcurl.
 
 config CHANNEL_CURL
 	bool
@@ -383,25 +393,39 @@ config CHANNEL_CURL
 config CHANNEL_CURL_SSL
 	bool
 	depends on CHANNEL_CURL
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
 	select CURL_SSL
 
 config HASH_VERIFY
 	bool "Allow to add sha256 hash to each image"
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
+	depends on SSL_IMPL_OPENSSL || SSL_IMPL_WOLFSSL || SSL_IMPL_MBEDTLS
 	help
 	  Allow to add a sha256 hash to an artifact.
 	  This is automatically set in case of Signed Image
 
 comment "Hash checking needs an SSL implementation"
-	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_MBEDTLS
+	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_WOLFSSL && !SSL_IMPL_MBEDTLS
+
+config DISABLE_CPIO_CRC
+	bool "Disable cpio CRC verify if SHA 256 is enabled"
+	depends on HASH_VERIFY
+	default n
+	help
+	  Disable CRC check in cpio header if sha256 is enabled.
+	  CRC in CPIO is not a real crc, but it is simply the sum
+	  of all bytes belonging to a file as 32 bit value. It is
+	  very weak and does not add any further safety if sha256
+	  is activated. CPIO in Linux distros has also a bug and
+	  CRC field is set to 0 when a file is larger as 2GB.
+
+	  SWUpdate supports the newc cpio format if this is
+	  selected. That format does not have a checksum.
 
 config SIGNED_IMAGES
 	bool "Enable verification of signed images"
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
+	depends on SSL_IMPL_OPENSSL || SSL_IMPL_WOLFSSL || SSL_IMPL_MBEDTLS
 	select HASH_VERIFY
 comment "Image signature verification needs an SSL implementation"
-	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_MBEDTLS
+	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_WOLFSSL && !SSL_IMPL_MBEDTLS
 
 choice
 	prompt "Signature verification algorithm"
@@ -438,9 +462,26 @@ endmenu
 
 config ENCRYPTED_IMAGES
 	bool "Images can be encrypted with a symmetric key"
-	depends on SSL_IMPL_OPENSSL || SSL_IMPL_MBEDTLS
+	depends on SSL_IMPL_OPENSSL || SSL_IMPL_WOLFSSL || SSL_IMPL_MBEDTLS
 comment "Image encryption needs an SSL implementation"
-	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_MBEDTLS
+	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_WOLFSSL && !SSL_IMPL_MBEDTLS
+
+config ENCRYPTED_SW_DESCRIPTION
+	bool "Even sw-description is encrypted"
+	depends on ENCRYPTED_IMAGES
+	help
+	  sw-description is not encrypted as default, but it is encrypted
+	  if this is set. It is a compile time option, and mix of plain and
+	  encrypted sw-descriptions is not possible.
+
+config PKCS11
+	bool "Enable PKCS#11 cryptographic operations"
+	default n
+	depends on HAVE_WOLFSSL && HAVE_P11KIT && ENCRYPTED_IMAGES
+	help
+	  Enable using PKCS#11 for AES decryption instead of having the plain
+	  key available in a file. This is implemented with wolfSSL independent
+	  from the SSL implementation and replaces the plain key method.
 
 source suricatta/Config.in
 

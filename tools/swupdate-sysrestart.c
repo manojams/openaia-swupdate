@@ -134,7 +134,6 @@ int main(int argc, char **argv)
 {
 	int connfd;
 	struct progress_msg msg;
-	const char *tmpdir;
 	int opt_w = 0;
 	int c;
 	int ret;
@@ -163,10 +162,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	tmpdir = getenv("TMPDIR");
-	if (!tmpdir)
-		tmpdir = "/tmp";
-
 	/* initialize CURL */
 	ret = curl_global_init(CURL_GLOBAL_DEFAULT);
 	if (ret != CURLE_OK) {
@@ -188,7 +183,7 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		if (progress_ipc_receive(&connfd, &msg) == -1) {
+		if (progress_ipc_receive(&connfd, &msg) <= 0) {
 			continue;
 		}
 
@@ -269,7 +264,7 @@ int main(int argc, char **argv)
 #else
 #warning "swupdate-sysrestart needs libcurl, replaced with dummy"
 
-int main(int argc, char **argv)
+int main(int __attribute__((__unused__)) argc, char __attribute__((__unused__)) **argv)
 {
 	fprintf(stderr, "Curl not available, exiting..\n");
 	exit(1);
