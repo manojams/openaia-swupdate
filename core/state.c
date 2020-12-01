@@ -12,6 +12,10 @@
 #include <util.h>
 #include <bootloader.h>
 #include <state.h>
+#include <network_ipc.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include "pctl.h"
 
 /*
  * This check is to avoid to corrupt the environment
@@ -28,19 +32,41 @@
 
 static server_op_res_t do_save_state(char *key, char* value)
 {
+	char c;
 	CHECK_STATE_VAR(key);
+	if (!value)
+		return -EINVAL;
+	c = *value;
+	if (c < STATE_OK || c > STATE_LAST)
+		return -EINVAL;
 	return bootloader_env_set(key, value) == 0 ? SERVER_OK : SERVER_EERR;
 }
 
 server_op_res_t save_state(char *key, update_state_t value)
 {
 	char value_str[2] = {value, '\0'};
-	return do_save_state(key, value_str);
+	ipc_message msg;
+	if (pid == getpid()) {
+		memset(&msg, 0, sizeof(msg));
+		msg.magic = IPC_MAGIC;
+		msg.type = SET_UPDATE_STATE;
+		msg.data.msg[0] = (char)value;
+		return (ipc_send_cmd(&msg));
+	} else { /* Main process */
+		return do_save_state(key, value_str);
+	}
 }
+
 
 server_op_res_t save_state_string(char *key, update_state_t value)
 {
-	return do_save_state(key, get_state_string(value));
+	CHECK_STATE_VAR(key);
+	if (!value)
+		return -EINVAL;
+	if (value < STATE_OK || value > STATE_LAST)
+		return -EINVAL;
+	return bootloader_env_set(key, get_state_string(value)) == 0 ?
+		SERVER_OK : SERVER_EERR;
 }
 
 server_op_res_t read_state(char *key, update_state_t *value)
@@ -63,7 +89,7 @@ server_op_res_t read_state(char *key, update_state_t *value)
 
 	return SERVER_OK;
 }
-server_op_res_t reset_state(char *key)
+server_op_res_t unset_state(char *key)
 {
 	int ret;
 

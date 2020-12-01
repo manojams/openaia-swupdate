@@ -41,6 +41,13 @@ enum {
 	INSTALL_FROM_STREAM
 };
 
+typedef enum {
+	SKIP_NONE=0,
+	SKIP_SAME,
+	SKIP_HIGHER,
+	SKIP_SCRIPT
+} skip_t;
+
 enum {
   COMPRESSED_FALSE,
   COMPRESSED_TRUE,
@@ -65,16 +72,17 @@ struct img_type {
 	char volname[MAX_VOLNAME];	/* Useful for UBI	*/
 	char device[MAX_VOLNAME];	/* device associated with image if any */
 	char path[MAX_IMAGE_FNAME];	/* Path where image must be installed */
+	char mtdname[MAX_IMAGE_FNAME];	/* MTD device where image must be installed */
 	char type_data[SWUPDATE_GENERAL_STRING_SIZE];	/* Data for handler */
 	char extract_file[MAX_IMAGE_FNAME];
 	char filesystem[MAX_IMAGE_FNAME];
 	unsigned long long seek;
-	int required;
+	skip_t skip;
 	int provided;
 	int compressed;
 	int preserve_attributes; /* whether to preserve attributes in archives */
 	int is_encrypted;
-	char ivt_ascii[32];
+	char ivt_ascii[33];
 	int install_directly;
 	int is_script;
 	int is_partitioner;
@@ -127,6 +135,9 @@ struct swupdate_global_cfg {
 	char aeskeyfname[SWUPDATE_GENERAL_STRING_SIZE];
 	char postupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
 	char preupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
+	char default_software_set[SWUPDATE_GENERAL_STRING_SIZE];
+	char default_running_mode[SWUPDATE_GENERAL_STRING_SIZE];
+	int  default_dry_run;
 	char minimum_version[SWUPDATE_GENERAL_STRING_SIZE];
 	char current_version[SWUPDATE_GENERAL_STRING_SIZE];
 	int cert_purpose;
@@ -148,6 +159,7 @@ struct swupdate_cfg {
 	struct imglist scripts;
 	struct imglist bootscripts;
 	struct dict bootloader;
+	struct dict accepted_set;
 	struct proclist extprocs;
 	void *dgst;	/* Structure for signed images */
 	struct swupdate_global_cfg globals;

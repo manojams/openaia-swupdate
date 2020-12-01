@@ -39,7 +39,9 @@ static void usage(void) {
 	fprintf(stdout,
 		" Available OPTIONS\n"
 		" -h : print help and exit\n"
-		" -d : ask the server to only perform a dryrun\n"
+		" -d : ask the server to only perform a dry run\n"
+		" -e, --select <software>,<mode> : Select software images set and source\n"
+		"                                  Ex.: stable,main\n"
 		" -q : go quite, resets verbosity\n"
 		" -v : go verbose, essentially print upgrade status messages from server\n"
 		" -p : ask the server to run post-update commands if upgrade succeeds\n"
@@ -49,9 +51,10 @@ static void usage(void) {
 char buf[256];
 int fd = STDIN_FILENO;
 int verbose = 1;
-bool dryrun = false;
+bool dry_run = false;
 bool run_postupdate = false;
 int end_status = EXIT_SUCCESS;
+char *software_set = NULL, *running_mode = NULL;
 
 pthread_mutex_t mymutex;
 
@@ -129,8 +132,16 @@ static int send_file(const char* filename) {
 	/* May be set non-zero by end() function on failure */
 	end_status = EXIT_SUCCESS;
 
+	struct swupdate_request req;
+	swupdate_prepare_req(&req);
+	if (dry_run)
+		req.dry_run = RUN_DRYRUN;
+	if (software_set && strlen(software_set)) {
+		strncpy(req.software_set, software_set, sizeof(req.software_set) - 1);
+		strncpy(req.running_mode, running_mode, sizeof(req.running_mode) - 1);
+	}
 	rc = swupdate_async_start(readimage, printstatus,
-				end, dryrun);
+				end, &req, sizeof(req));
 
 	/* return if we've hit an error scenario */
 	if (rc < 0) {
@@ -158,14 +169,15 @@ static int send_file(const char* filename) {
  */
 int main(int argc, char *argv[]) {
 	int c;
+	char *pos;
 
 	pthread_mutex_init(&mymutex, NULL);
 
 	/* parse command line options */
-	while ((c = getopt(argc, argv, "dhqvp")) != EOF) {
+	while ((c = getopt(argc, argv, "dhqvpe:")) != EOF) {
 		switch (c) {
 		case 'd':
-			dryrun = true;
+			dry_run = true;
 			break;
 		case 'h':
 			usage();
@@ -175,6 +187,16 @@ int main(int argc, char *argv[]) {
 			break;
 		case 'v':
 			verbose++;
+			break;
+		case 'e':
+			pos = strchr(optarg, ',');
+			if (pos == NULL) {
+				fprintf(stderr, "Wrong selection %s\n", optarg);
+				exit (EXIT_FAILURE);
+			}
+			*pos++ = '\0';
+			software_set = optarg;
+			running_mode = pos;
 			break;
 		case 'p':
 			run_postupdate = true;

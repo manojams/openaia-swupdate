@@ -111,20 +111,20 @@ static void restart_handler(struct mg_connection *nc, int ev, void *ev_data)
 	struct http_message *hm = (struct http_message *) ev_data;
 	ipc_message msg = {};
 
-	(void)ev;
+	if (ev == MG_EV_HTTP_REQUEST) {
+		if(mg_vcasecmp(&hm->method, "POST") != 0) {
+			mg_http_send_error(nc, 405, "Method Not Allowed");
+			return;
+		}
 
-	if(mg_vcasecmp(&hm->method, "POST") != 0) {
-		mg_http_send_error(nc, 405, "Method Not Allowed");
-		return;
+		int ret = ipc_postupdate(&msg);
+		if (ret) {
+			mg_http_send_error(nc, 500, "Failed to queue command");
+			return;
+		}
+
+		mg_http_send_error(nc, 201, "Device will reboot now.");
 	}
-
-	int ret = ipc_postupdate(&msg);
-	if (ret) {
-		mg_http_send_error(nc, 500, "Failed to queue command");
-		return;
-	}
-
-	mg_http_send_error(nc, 201, "Device will reboot now.");
 }
 
 static void broadcast_callback(struct mg_connection *nc, int ev, void *ev_data)
@@ -288,7 +288,12 @@ static void upload_handler(struct mg_connection *nc, int ev, void *p)
 			break;
 		}
 
-		fus->fd = ipc_inst_start_ext(SOURCE_WEBSERVER, strlen(mp->file_name), mp->file_name, false);
+		struct swupdate_request req;
+		swupdate_prepare_req(&req);
+		req.len = strlen(mp->file_name);
+		strncpy(req.info, mp->file_name, sizeof(req.info) - 1);
+		req.source = SOURCE_WEBSERVER;
+		fus->fd = ipc_inst_start_ext(&req, sizeof(req));
 		if (fus->fd < 0) {
 			mg_http_send_error(nc, 500, "Failed to queue command");
 			free(fus);
@@ -588,7 +593,7 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 
 	nc = mg_bind_opt(&mgr, s_http_port, ev_handler, bind_opts);
 	if (nc == NULL) {
-		fprintf(stderr, "Failed to start Mongoose: %s\n", *bind_opts.error_string);
+		ERROR("Failed to start Mongoose: %s", *bind_opts.error_string);
 		exit(EXIT_FAILURE);
 	}
 
@@ -607,7 +612,7 @@ int start_mongoose(const char *cfgfname, int argc, char *argv[])
 	mg_start_thread(broadcast_message_thread, &mgr);
 	mg_start_thread(broadcast_progress_thread, &mgr);
 
-	printf("Mongoose web server version %s with pid %d started on port(s) %s with web root [%s]\n",
+	INFO("Mongoose web server version %s with pid %d started on port(s) %s with web root [%s]",
 		MG_VERSION, getpid(), s_http_port,
 		s_http_server_opts.document_root);
 

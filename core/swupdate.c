@@ -76,6 +76,7 @@ static struct option long_options[] = {
 	{"loglevel", required_argument, NULL, 'l'},
 	{"syslog", no_argument, NULL, 'L' },
 	{"select", required_argument, NULL, 'e'},
+	{"accepted-select", required_argument, NULL, 'q'},
 	{"output", required_argument, NULL, 'o'},
 	{"dry-run", no_argument, NULL, 'n'},
 	{"no-downgrading", required_argument, NULL, 'N'},
@@ -128,6 +129,11 @@ static void usage(char *programname)
 		" -P, --preupdate                : execute pre-update command\n"
 		" -e, --select <software>,<mode> : Select software images set and source\n"
 		"                                  Ex.: stable,main\n"
+		" --accepted-select\n"
+		"            <software>,<mode>   : List for software images set and source\n"
+		"                                  that are accepted via IPC\n"
+		"                                  Ex.: stable,main\n"
+		"                                  it can be set multiple times\n"
 		" -i, --image <filename>         : Software to be installed\n"
 		" -l, --loglevel <level>         : logging level\n"
 		" -L, --syslog                   : enable syslog logger\n"
@@ -146,7 +152,7 @@ static void usage(char *programname)
 		" -N, --no-downgrading <version> : not install a release older as <version>\n"
 		" -R, --no-reinstalling <version>: not install a release same as <version>\n"
 		" -M, --no-transaction-marker    : disable setting bootloader transaction marker\n"
-		" -o, --output <output file>     : saves the incoming stream\n"
+		" -o, --output <filename>        : saves the incoming stream\n"
 		" -v, --verbose                  : be verbose, set maximum loglevel\n"
 		"     --version                  : print SWUpdate version and exit\n"
 #ifdef CONFIG_HW_COMPATIBILITY
@@ -298,8 +304,11 @@ static int install_from_file(char *fname, int check)
 	int fdsw;
 	off_t pos;
 	int ret;
+	bool encrypted_sw_desc = false;
 
-
+#ifdef CONFIG_ENCRYPTED_SW_DESCRIPTION
+	encrypted_sw_desc = true;
+#endif
 	if (!strlen(fname)) {
 		ERROR("Image not found...please reboot");
 		exit(EXIT_FAILURE);
@@ -315,10 +324,10 @@ static int install_from_file(char *fname, int check)
 	}
 
 	pos = 0;
-	ret = extract_sw_description(fdsw, SW_DESCRIPTION_FILENAME, &pos);
+	ret = extract_sw_description(fdsw, SW_DESCRIPTION_FILENAME, &pos, encrypted_sw_desc);
 #ifdef CONFIG_SIGNED_IMAGES
 	ret |= extract_sw_description(fdsw, SW_DESCRIPTION_FILENAME ".sig",
-		&pos);
+		&pos, false);
 #endif
 	/*
 	 * Check if files could be extracted
@@ -380,10 +389,11 @@ static int install_from_file(char *fname, int check)
 	/*
 	 * Set "recovery_status" as begin of the transaction"
 	 */
-	if (swcfg.bootloader_transaction_marker) {
+	if (!swcfg.globals.dry_run && swcfg.bootloader_transaction_marker) {
 		save_state_string((char*)BOOTVAR_TRANSACTION, STATE_IN_PROGRESS);
 	}
 
+	swcfg.globals.dry_run = swcfg.globals.default_dry_run;
 	ret = install_images(&swcfg, fdsw, 1);
 
 	swupdate_progress_end(ret == 0 ? SUCCESS : FAILURE);
@@ -391,12 +401,12 @@ static int install_from_file(char *fname, int check)
 	close(fdsw);
 
 	if (ret) {
-		fprintf(stdout, "Software updated failed\n");
+		fprintf(stdout, "Software update failed\n");
 		return EXIT_FAILURE;
 	}
 
-	if (swcfg.bootloader_transaction_marker) {
-		reset_state((char*)BOOTVAR_TRANSACTION);
+	if (!swcfg.globals.dry_run && swcfg.bootloader_transaction_marker) {
+		unset_state((char*)BOOTVAR_TRANSACTION);
 	}
 	fprintf(stdout, "Software updated successfully\n");
 	fprintf(stdout, "Please reboot the device to start the new software\n");
@@ -414,8 +424,14 @@ static int parse_image_selector(const char *selector, struct swupdate_cfg *sw)
 
 	*pos = '\0';
 
+	/*
+	 * the runtime copy in swcfg can be overloaded by IPC,
+	 * so maintain a copy to restore it after an update
+	 */
+	strlcpy(sw->globals.default_software_set, selector, sizeof(sw->globals.default_software_set));
 	strlcpy(sw->software_set, selector, sizeof(sw->software_set));
 	/* pos + 1 will either be NULL or valid text */
+	strlcpy(sw->globals.default_running_mode, pos + 1, sizeof(sw->globals.default_running_mode));
 	strlcpy(sw->running_mode, pos + 1, sizeof(sw->running_mode));
 
 	if (strlen(sw->software_set) == 0 || strlen(sw->running_mode) == 0)
@@ -551,6 +567,28 @@ static int read_globals_settings(void *elem, void *data)
 	return 0;
 }
 
+const char *loglevnames[] = {
+	[ERRORLEVEL] = "error",
+	[WARNLEVEL] = "warning",
+	[INFOLEVEL] = "info",
+	[DEBUGLEVEL] = "debug",
+	[TRACELEVEL] = "trace"
+};
+
+static int read_console_settings(void *elem, void __attribute__ ((__unused__)) *data)
+{
+	char tmp[SWUPDATE_GENERAL_STRING_SIZE] = "";
+	int i;
+
+	for (i = ERRORLEVEL; i <= LASTLOGLEVEL; i++) {
+		memset(tmp, 0, sizeof(tmp));
+		GET_FIELD_STRING(LIBCFG_PARSER, elem, loglevnames[i], tmp);
+		if (tmp[0] != '\0')
+			notifier_set_color(i, tmp);
+	}
+	return 0;
+}
+
 static int read_processes_settings(void *settings, void *data)
 {
 	struct swupdate_cfg *sw = (struct swupdate_cfg *)data;
@@ -633,7 +671,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:l:Lcf:p:P:o:N:R:M");
+	strcpy(main_options, "vhni:e:q:l:Lcf:p:P:o:N:R:M");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -697,33 +735,34 @@ int main(int argc, char **argv)
 
 	/* Load configuration file */
 	if (cfgfname != NULL) {
-		if (read_module_settings(cfgfname, "globals",
-			read_globals_settings, &swcfg)) {
-			fprintf(stderr,
-				 "Error parsing configuration file, exiting..\n");
-			exit(EXIT_FAILURE);
-		}
-
-		loglevel = swcfg.globals.loglevel;
-		if (swcfg.globals.verbose)
-			loglevel = TRACELEVEL;
-
-		int ret = read_module_settings(cfgfname, "processes",
-						read_processes_settings,
-						&swcfg);
 		/*
-		 * ignore other errors, check only if file is parsed
+		 * 'globals' section is mandatory if configuration file is specified.
 		 */
-		if (ret == -EINVAL) {
+		int ret = read_module_settings(cfgfname, "globals",
+					       read_globals_settings, &swcfg);
+		if (ret != 0) {
+			/*
+			 * Exit on -ENODATA or -EINVAL errors.
+			 */
 			fprintf(stderr,
-				 "Error parsing configuration file, exiting..\n");
+			    "Error parsing configuration file: %s, exiting.\n",
+			    ret == -ENODATA ? "'globals' section missing"
+					    : "cannot read");
 			exit(EXIT_FAILURE);
 		}
-	}
 
-	printf("%s\n", BANNER);
-	printf("Licensed under GPLv2. See source distribution for detailed "
-		"copyright notices.\n\n");
+		loglevel = swcfg.globals.verbose ? TRACELEVEL : swcfg.globals.loglevel;
+
+		/*
+		 * The following sections are optional, hence -ENODATA error code is
+		 * ignored if the section is not found. -EINVAL will not happen here.
+		 */
+		(void)read_module_settings(cfgfname, "logcolors",
+					   read_console_settings, &swcfg);
+
+		(void)read_module_settings(cfgfname, "processes",
+					   read_processes_settings, &swcfg);
+	}
 
 	/*
 	 * Command line should be parsed a second time
@@ -764,7 +803,7 @@ int main(int argc, char **argv)
 			loglevel = strtoul(optarg, NULL, 10);
 			break;
 		case 'n':
-			swcfg.globals.dry_run = 1;
+			swcfg.globals.default_dry_run = 1;
 			break;
 		case 'L':
 			swcfg.globals.syslog_enabled = 1;
@@ -829,6 +868,9 @@ int main(int argc, char **argv)
 			if (opt_to_hwrev(optarg, &swcfg.hw) < 0)
 				exit(EXIT_FAILURE);
 			break;
+		case 'q':
+			dict_insert_value(&swcfg.accepted_set, "accepted", optarg);
+			break;
 #ifdef CONFIG_SURICATTA
 		case 'u':
 			if (asprintf(&suricattaoptions,"%s %s", argv[0], optarg) ==
@@ -865,7 +907,7 @@ int main(int argc, char **argv)
 				sizeof(swcfg.globals.preupdatecmd));
 			break;
 		default:
-			usage(argv[0]);
+			fprintf(stdout, "Try %s -h for usage\n", argv[0]);
 			exit(EXIT_FAILURE);
 			break;
 		}
@@ -873,7 +915,8 @@ int main(int argc, char **argv)
 
 	if (optind < argc) {
 		/* SWUpdate has no non-option arguments, fail on them */
-		usage(argv[0]);
+		fprintf(stderr,
+			 "Error: Non-option or unrecognized argument(s) given, see --help.\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -883,28 +926,25 @@ int main(int argc, char **argv)
 	 */
 	if (public_key_mandatory && !strlen(swcfg.globals.publickeyfname)) {
 		fprintf(stderr,
-			 "swupdate built for signed image, provide a public key file\n");
-		usage(argv[0]);
+			 "Error: SWUpdate is built for signed images, provide a public key file.\n");
 		exit(EXIT_FAILURE);
 	}
 
 	if (opt_c && !opt_i) {
 		fprintf(stderr,
-			"request check for local image, it requires -i\n");
-		usage(argv[0]);
+			"Error: Checking local images requires -i <file>.\n");
 		exit(EXIT_FAILURE);
 	}
 
 	if (opt_i && strlen(swcfg.output)) {
 		fprintf(stderr,
-			"Output just from network - do you know cp ?\n");
-		usage(argv[0]);
+			"Error: Use cp for -i <image> -o <outfile>.\n");
 		exit(EXIT_FAILURE);
 	}
 
 #ifdef CONFIG_SURICATTA
 	if (opt_u && (opt_c || opt_i)) {
-		fprintf(stderr, "invalid mode combination with suricatta.\n");
+		fprintf(stderr, "Error: Invalid mode combination with suricatta.\n");
 		exit(EXIT_FAILURE);
 	}
 #endif
@@ -914,10 +954,14 @@ int main(int argc, char **argv)
 	if (strlen(swcfg.globals.publickeyfname)) {
 		if (swupdate_dgst_init(&swcfg, swcfg.globals.publickeyfname)) {
 			fprintf(stderr,
-				 "Crypto cannot be initialized\n");
+				 "Error: Crypto cannot be initialized.\n");
 			exit(EXIT_FAILURE);
 		}
 	}
+
+	printf("%s\n", BANNER);
+	printf("Licensed under GPLv2. See source distribution for detailed "
+		"copyright notices.\n\n");
 
 	/*
 	 * Install a child handler to check if a subprocess
@@ -926,18 +970,62 @@ int main(int argc, char **argv)
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigchld_handler;
 	sigaction(SIGCHLD, &sa, NULL);
+#ifdef CONFIG_UBIATTACH
+	if (strlen(swcfg.globals.mtdblacklist))
+		mtd_set_ubiblacklist(swcfg.globals.mtdblacklist);
+#endif
 
 	/*
-	 * If just a check is required, do not
-	 * start background processes and threads
+	 * If an AES key is passed, load it to allow
+	 * to decrypt images
+	 */
+	if (strlen(swcfg.globals.aeskeyfname)) {
+		if (load_decryption_key(swcfg.globals.aeskeyfname)) {
+			fprintf(stderr,
+				"Error: Key file does not contain a valid AES key.\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	lua_handlers_init();
+
+	if(!get_hw_revision(&swcfg.hw))
+		INFO("Running on %s Revision %s", swcfg.hw.boardname, swcfg.hw.revision);
+
+	print_registered_handlers();
+	if (swcfg.globals.syslog_enabled) {
+		if (syslog_init()) {
+			ERROR("failed to initialize syslog notifier");
+		}
+	}
+
+	if (opt_e) {
+		if (parse_image_selector(software_select, &swcfg)) {
+			fprintf(stderr, "Error: Incorrect select option format.\n");
+			exit(EXIT_FAILURE);
+		}
+		INFO("software set: %s mode: %s", swcfg.globals.default_software_set,
+		     swcfg.globals.default_running_mode);
+	}
+
+	/* Read sw-versions */
+	get_sw_versions(cfgfname, &swcfg);
+
+	/*
+	 *  Do not start daemon if just a check is required
+	 *  SWUpdate will exit after the check
 	 */
 	if (!opt_c) {
+		network_daemon = start_thread(network_initializer, &swcfg);
+
+		start_thread(progress_bar_thread, NULL);
+
 		/* Start embedded web server */
 #if defined(CONFIG_MONGOOSE)
 		if (opt_w) {
 			start_subprocess(SOURCE_WEBSERVER, "webserver",
-						cfgfname, ac, av,
-						start_mongoose);
+					 cfgfname, ac, av,
+					 start_mongoose);
 			freeargs(av);
 		}
 #endif
@@ -946,7 +1034,7 @@ int main(int argc, char **argv)
 		if (opt_u) {
 			start_subprocess(SOURCE_SURICATTA, "suricatta",
 					 cfgfname, argcount,
-				       	 argvalues, start_suricatta);
+					 argvalues, start_suricatta);
 
 			freeargs(argvalues);
 		}
@@ -955,8 +1043,8 @@ int main(int argc, char **argv)
 #ifdef CONFIG_DOWNLOAD
 		if (opt_d) {
 			start_subprocess(SOURCE_DOWNLOADER, "download",
-				       	 cfgfname, dwlac,
-				       	 dwlav, start_download);
+					 cfgfname, dwlac,
+					 dwlav, start_download);
 			freeargs(dwlav);
 		}
 #endif
@@ -979,63 +1067,12 @@ int main(int argc, char **argv)
 		}
 	}
 
-#ifdef CONFIG_UBIATTACH
-	if (strlen(swcfg.globals.mtdblacklist))
-		mtd_set_ubiblacklist(swcfg.globals.mtdblacklist);
-#endif
-
-	/*
-	 * If an AES key is passed, load it to allow
-	 * to decrypt images
-	 */
-	if (strlen(swcfg.globals.aeskeyfname)) {
-		if (load_decryption_key(swcfg.globals.aeskeyfname)) {
-			fprintf(stderr,
-				"Key file does not contain a valid AES key\n");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	lua_handlers_init();
-
-	if(!get_hw_revision(&swcfg.hw))
-		printf("Running on %s Revision %s\n", swcfg.hw.boardname, swcfg.hw.revision);
-
-	print_registered_handlers();
-	if (swcfg.globals.syslog_enabled) {
-		if (syslog_init()) {
-			ERROR("failed to initialize syslog notifier");
-		}
-	}
-
-	if (opt_e) {
-		if (parse_image_selector(software_select, &swcfg)) {
-			fprintf(stderr, "Incorrect select option format\n");
-			exit(EXIT_FAILURE);
-		}
-		fprintf(stderr, "software set: %s mode: %s\n",
-			swcfg.software_set, swcfg.running_mode);
-	}
-
-	/* Read sw-versions */
-	get_sw_versions(cfgfname, &swcfg);
-
-	/*
-	 *  Do not start daemon if just a check is required
-	 *  SWUpdate will exit after the check
-	 */
-	if (!opt_c) {
-		network_daemon = start_thread(network_initializer, &swcfg);
-
-		start_thread(progress_bar_thread, NULL);
-	}
-
 	if (opt_i) {
 
 		result = install_from_file(fname, opt_c);
 		switch (result) {
 		case EXIT_FAILURE:
-			if (swcfg.bootloader_transaction_marker) {
+			if (!swcfg.globals.dry_run && swcfg.bootloader_transaction_marker) {
 				save_state_string((char*)BOOTVAR_TRANSACTION, STATE_FAILED);
 			}
 			break;

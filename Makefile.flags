@@ -149,6 +149,17 @@ ifeq ($(CONFIG_SSL_IMPL_OPENSSL),y)
 LDLIBS += crypto ssl
 endif
 
+ifeq ($(CONFIG_SSL_IMPL_WOLFSSL),y)
+KBUILD_CPPFLAGS += -DOPENSSL_ALL
+LDLIBS += wolfssl
+else ifeq ($(CONFIG_PKCS11),y)
+LDLIBS += wolfssl
+endif
+
+ifeq ($(CONFIG_PKCS11),y)
+LDLIBS += p11-kit
+endif
+
 ifeq ($(CONFIG_SSL_IMPL_MBEDTLS),y)
 LDLIBS += mbedcrypto mbedtls mbedx509
 endif
@@ -168,6 +179,10 @@ endif
 
 ifeq ($(CONFIG_DISKPART),y)
 LDLIBS += fdisk
+endif
+
+ifeq ($(CONFIG_UNIQUEUUID),y)
+LDLIBS += blkid
 endif
 
 ifeq ($(CONFIG_RDIFFHANDLER),y)
@@ -192,18 +207,6 @@ endif
 
 ifeq ($(CONFIG_BOOTLOADER_EBG),y)
 LDLIBS += ebgenv z
-endif
-
-# suricatta
-ifneq ($(CONFIG_SURICATTA),)
-ifneq ($(CONFIG_SURICATTA_HAWKBIT),)
-ifeq ($(strip $(findstring json-c,$(LDLIBS))),)
-LDLIBS += json-c
-endif
-ifeq ($(strip $(findstring curl,$(LDLIBS))),)
-LDLIBS += curl
-endif
-endif
 endif
 
 # SWU forwarder

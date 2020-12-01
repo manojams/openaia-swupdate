@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/un.h>
@@ -71,20 +72,20 @@ int ipc_postupdate(ipc_message *msg) {
 
 	ssize_t ret;
 	char* tmpbuf = NULL;
-	if (msg->data.instmsg.len > 0) {
-		if ((tmpbuf = strndupa(msg->data.instmsg.buf,
-				msg->data.instmsg.len > sizeof(msg->data.instmsg.buf)
-				    ? sizeof(msg->data.instmsg.buf)
-				    : msg->data.instmsg.len)) == NULL) {
+	if (msg->data.procmsg.len > 0) {
+		if ((tmpbuf = strndupa(msg->data.procmsg.buf,
+				msg->data.procmsg.len > sizeof(msg->data.procmsg.buf)
+				    ? sizeof(msg->data.procmsg.buf)
+				    : msg->data.procmsg.len)) == NULL) {
 			close(connfd);
 			return -1;
 		}
 	}
 	memset(msg, 0, sizeof(*msg));
 	if (tmpbuf != NULL) {
-		msg->data.instmsg.buf[sizeof(msg->data.instmsg.buf) - 1] = '\0';
-		strncpy(msg->data.instmsg.buf, tmpbuf, sizeof(msg->data.instmsg.buf) - 1);
-		msg->data.instmsg.len = strnlen(tmpbuf, sizeof(msg->data.instmsg.buf) - 1);
+		msg->data.procmsg.buf[sizeof(msg->data.procmsg.buf) - 1] = '\0';
+		strncpy(msg->data.procmsg.buf, tmpbuf, sizeof(msg->data.procmsg.buf) - 1);
+		msg->data.procmsg.len = strnlen(tmpbuf, sizeof(msg->data.procmsg.buf) - 1);
 	}
 	msg->magic = IPC_MAGIC;
 	msg->type = POST_UPDATE;
@@ -175,12 +176,34 @@ int ipc_get_status_timeout(ipc_message *msg, unsigned int timeout_ms)
 	return ret;
 }
 
-int ipc_inst_start_ext(sourcetype source, size_t len, const char *buf, bool dryrun)
+int ipc_inst_start_ext(void *priv, ssize_t size)
 {
 	int connfd;
 	ipc_message msg;
 	ssize_t ret;
+	struct swupdate_request *req;
+	struct swupdate_request localreq;
 
+
+	if (priv) {
+		/*
+		 * To be expanded: in future if more API will
+		 * be supported, a conversion will be take place
+		 * to send to the installer a single identifiable
+		 * request
+		 */
+		if (size != sizeof(struct swupdate_request))
+			return -EINVAL;
+		req = (struct swupdate_request *)priv;
+	} else {
+		/*
+		 * ensure that a valid install request
+		 * reaches the installer, add an empty
+		 * one with default values
+		 */
+		swupdate_prepare_req(&localreq);
+		req = &localreq;
+	}
 	connfd = prepare_ipc();
 	if (connfd < 0)
 		return -1;
@@ -191,22 +214,9 @@ int ipc_inst_start_ext(sourcetype source, size_t len, const char *buf, bool dryr
 	 * Command is request to install
 	 */
 	msg.magic = IPC_MAGIC;
-	msg.type = (!dryrun) ? REQ_INSTALL : REQ_INSTALL_DRYRUN;
+	msg.type = REQ_INSTALL;
 
-	/*
-	 * Pass data from interface originating
-	 * the update, if any
-	 */
-	msg.data.instmsg.source = source;
-	if (len > sizeof(msg.data.instmsg.buf))
-		len = sizeof(msg.data.instmsg.buf);
-	if (!source) {
-		msg.data.instmsg.len = 0;
-	} else {
-		msg.data.instmsg.len = len;
-		memcpy(msg.data.instmsg.buf, buf, len);
-	}
-
+	msg.data.instmsg.req = *req;
 	ret = write(connfd, &msg, sizeof(msg));
 	if (ret != sizeof(msg)) {
 		close(connfd);
@@ -233,7 +243,7 @@ int ipc_inst_start_ext(sourcetype source, size_t len, const char *buf, bool dryr
  */
 int ipc_inst_start(void)
 {
-	return ipc_inst_start_ext(SOURCE_UNKNOWN, 0, NULL, false);
+	return ipc_inst_start_ext(NULL, 0);
 }
 
 /*

@@ -7,6 +7,9 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
@@ -19,9 +22,11 @@
 #include <unistd.h>
 #include <network_ipc.h>
 #include <util.h>
+#include "channel_op_res.h"
 #include "sslapi.h"
 #include "channel.h"
 #include "channel_curl.h"
+#include "progress.h"
 #ifdef CONFIG_JSON
 #include <json-c/json.h>
 #endif
@@ -53,14 +58,13 @@ typedef struct {
 
 /* Prototypes for "internal" functions */
 /* Note that they're not `static` so that they're callable from unit tests. */
-size_t channel_callback_write_file(void *streamdata, size_t size, size_t nmemb,
+size_t channel_callback_ipc(void *streamdata, size_t size, size_t nmemb,
 				   write_callback_t *data);
 size_t channel_callback_membuffer(void *streamdata, size_t size, size_t nmemb,
 				   write_callback_t *data);
 channel_op_res_t channel_map_http_code(channel_t *this, long *http_response_code);
 channel_op_res_t channel_map_curl_error(CURLcode res);
-channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_data,
-				     channel_method_t method);
+channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_data);
 char *channel_get_redirect_url(channel_t *this);
 
 static void channel_log_effective_url(channel_t *this);
@@ -154,8 +158,8 @@ channel_op_res_t channel_open(channel_t *this, void *cfg)
 	return CHANNEL_OK;
 }
 
-static channel_op_res_t result_channel_callback_write_file;
-size_t channel_callback_write_file(void *streamdata, size_t size, size_t nmemb,
+static channel_op_res_t result_channel_callback_ipc;
+size_t channel_callback_ipc(void *streamdata, size_t size, size_t nmemb,
 				   write_callback_t *data)
 {
 	if (!nmemb) {
@@ -163,14 +167,14 @@ size_t channel_callback_write_file(void *streamdata, size_t size, size_t nmemb,
 	}
 	if (!data)
 		return 0;
-	result_channel_callback_write_file = CHANNEL_OK;
+	result_channel_callback_ipc = CHANNEL_OK;
 
 	if (data->channel_data->usessl) {
 		if (swupdate_HASH_update(data->channel_data->dgst,
 					 streamdata,
 					 size * nmemb) < 0) {
 			ERROR("Updating checksum of chunk failed.");
-			result_channel_callback_write_file = CHANNEL_EIO;
+			result_channel_callback_ipc = CHANNEL_EIO;
 			return 0;
 		}
 	}
@@ -178,7 +182,7 @@ size_t channel_callback_write_file(void *streamdata, size_t size, size_t nmemb,
 	if (ipc_send_data(data->output, streamdata, (int)(size * nmemb)) <
 	    0) {
 		ERROR("Writing into SWUpdate IPC stream failed.");
-		result_channel_callback_write_file = CHANNEL_EIO;
+		result_channel_callback_ipc = CHANNEL_EIO;
 		return 0;
 	}
 
@@ -190,6 +194,46 @@ size_t channel_callback_write_file(void *streamdata, size_t size, size_t nmemb,
 	 */
 
 	return size * nmemb;
+}
+
+#define BUFF_SIZE 16384
+static unsigned long long int resume_cache_file(const char *fname,
+					  write_callback_t *data)
+{
+	int fdsw;
+	char *buf;
+	ssize_t cnt;
+	unsigned long long processed = 0;
+
+	if (!fname || !strlen(fname))
+		return 0;
+	fdsw = open(fname, O_RDONLY);
+	if (fdsw < 0)
+		return 0; /* ignore, load from network */
+	buf = calloc(1, BUFF_SIZE);
+	if (!buf) {
+		ERROR("Channel get operation failed with OOM");
+		close(fdsw);
+		return 0;
+	}
+
+	while ((cnt = read(fdsw, buf, BUFF_SIZE)) > 0) {
+		if (!channel_callback_ipc(buf, cnt, 1, data))
+			break;
+		processed += cnt;
+	}
+
+	close(fdsw);
+	free(buf);
+
+	/*
+	 * Cache file is used just once: after it is read, it is
+	 * dropped automatically to avoid to reuse it again
+	 * for next update
+	 */
+	unlink(fname);
+
+	return processed;
 }
 
 size_t channel_callback_membuffer(void *streamdata, size_t size, size_t nmemb,
@@ -379,14 +423,7 @@ static int channel_callback_xferinfo(void *p, curl_off_t dltotal, curl_off_t dln
 		return 0;
 	}
 	*last_percent = percent;
-	char *info;
-	if (asprintf(&info,
-					"{\"percent\": %d, \"msg\":\"Received %" CURL_FORMAT_CURL_OFF_T "B "
-					"of %" CURL_FORMAT_CURL_OFF_T "B\"}",
-					(int)percent, dlnow, dltotal) != ENOMEM_ASPRINTF) {
-		notify(PROGRESS, RECOVERY_NO_ERROR, TRACELEVEL, info);
-		free(info);
-	}
+	swupdate_download_update(percent, dltotal);
 	return 0;
 }
 
@@ -419,10 +456,14 @@ static size_t channel_callback_headers(char *buffer, size_t size, size_t nitems,
 		key = info;
 		val = p + 1; /* Next char after ':' */
 		while(isspace((unsigned char)*val)) val++;
-		dict_insert_value(dict, key, val);
-		TRACE("%s : %s", key, val);
+		/* Remove '\n', '\r', and '\r\n' from header's value. */
+		*strchrnul(val, '\r') = '\0';
+		*strchrnul(val, '\n') = '\0';
+		/* For multiple same-key headers, only the last is saved. */
+		dict_set_value(dict, key, val);
+		TRACE("Header processed: %s : %s", key, val);
 	} else {
-		TRACE("Header not processed: %s", info);
+		TRACE("Header not processed: '%s'", info);
 	}
 
 	free(info);
@@ -474,9 +515,7 @@ static channel_op_res_t channel_set_content_type(channel_t *this,
 	return result;
 }
 
-channel_op_res_t channel_set_options(channel_t *this,
-					channel_data_t *channel_data,
-					channel_method_t method)
+channel_op_res_t channel_set_options(channel_t *this, channel_data_t *channel_data)
 {
 	if (channel_data->low_speed_timeout == 0) {
 		channel_data->low_speed_timeout = SPEED_LOW_TIME_SEC;
@@ -508,9 +547,16 @@ channel_op_res_t channel_set_options(channel_t *this,
 			      channel_data->sslkey) != CURLE_OK) ||
 	    (curl_easy_setopt(channel_curl->handle,
 			      CURLOPT_SSLCERT,
-			      channel_data->sslcert) != CURLE_OK)) {
+			      channel_data->sslcert) != CURLE_OK) ||
+        (curl_easy_setopt(channel_curl->handle,
+                  CURLOPT_POSTREDIR,
+                  CURL_REDIR_POST_ALL) != CURLE_OK)) {
 		result = CHANNEL_EINIT;
 		goto cleanup;
+	}
+
+	if (channel_data->debug) {
+		(void)curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
 	}
 
 	if ((!channel_data->nofollow) &&
@@ -542,14 +588,13 @@ channel_op_res_t channel_set_options(channel_t *this,
 		goto cleanup;
 	}
 
-	/*
-	 * if the caller wants to parse the headers,
-	 * collect them in a dictionary.
-	 * The caller must provide a valid dictionary
-	 * for it
-	 */
-
 	if (channel_data->headers) {
+		/*
+		 * Setup supply request and receive reply HTTP headers.
+		 * A LIST_INIT()'d dictionary is expected at channel_data->headers.
+		 * The dictionary is modified in-place with the received headers,
+		 * if any, by channel_callback_headers().
+		 */
 		if ((curl_easy_setopt(channel_curl->handle,
 			      CURLOPT_HEADERFUNCTION,
 			      channel_callback_headers) != CURLE_OK) ||
@@ -557,6 +602,26 @@ channel_op_res_t channel_set_options(channel_t *this,
 			      channel_data->headers) != CURLE_OK)) {
 			result = CHANNEL_EINIT;
 			goto cleanup;
+		}
+
+		struct dict_entry *entry;
+		char *header;
+		LIST_FOREACH(entry, channel_data->headers, next)
+		{
+			if (ENOMEM_ASPRINTF ==
+			    asprintf(&header, "%s: %s",
+				     dict_entry_get_key(entry),
+				     dict_entry_get_value(entry))) {
+				result = CHANNEL_EINIT;
+				goto cleanup;
+			}
+			if ((channel_curl->header = curl_slist_append(
+				  channel_curl->header, header)) == NULL) {
+				free(header);
+				result = CHANNEL_EINIT;
+				goto cleanup;
+			}
+			free(header);
 		}
 	}
 
@@ -613,37 +678,6 @@ channel_op_res_t channel_set_options(channel_t *this,
 			result = CHANNEL_EINIT;
 			goto cleanup;
 		}
-	}
-
-	switch (method) {
-	case CHANNEL_GET:
-		if (curl_easy_setopt(channel_curl->handle, CURLOPT_CUSTOMREQUEST,
-				     "GET") != CURLE_OK) {
-			result = CHANNEL_EINIT;
-			goto cleanup;
-		}
-		break;
-	case CHANNEL_PUT:
-		if ((curl_easy_setopt(channel_curl->handle, CURLOPT_PUT, 1L) !=
-		     CURLE_OK) ||
-		     (curl_easy_setopt(channel_curl->handle, CURLOPT_UPLOAD, 1L) !=
-		      CURLE_OK)) {
-			result = CHANNEL_EINIT;
-			goto cleanup;
-		}
-		break;
-	case CHANNEL_POST:
-		if ((curl_easy_setopt(channel_curl->handle, CURLOPT_POST, 1L) !=
-		     CURLE_OK) ||
-		    (curl_easy_setopt(channel_curl->handle, CURLOPT_POSTFIELDS,
-				      channel_data->request_body) != CURLE_OK)) {
-			result = CHANNEL_EINIT;
-			goto cleanup;
-		}
-		if (channel_data->debug) {
-			TRACE("Posted: %s", channel_data->request_body);
-		}
-		break;
 	}
 
 	if (channel_curl->proxy != NULL) {
@@ -717,7 +751,91 @@ static size_t put_read_callback(void *ptr, size_t size, size_t nmemb, void *data
 	return n;
 }
 
-static channel_op_res_t channel_post_method(channel_t *this, void *data)
+static void channel_log_reply(channel_op_res_t result, channel_data_t *channel_data,
+			      output_data_t *chunk)
+{
+	if (result != CHANNEL_OK) {
+		ERROR("Channel operation returned HTTP error code %ld.",
+			channel_data->http_response_code);
+		switch (channel_data->http_response_code) {
+			case 403:
+			case 404:
+			case 500:
+				DEBUG("The error message is: '%s'", chunk ? chunk->memory : "N/A");
+				break;
+			default:
+				break;
+		}
+		return;
+	}
+	if (channel_data->debug) {
+		TRACE("Channel operation returned HTTP status code %ld.",
+		      channel_data->http_response_code);
+	}
+}
+
+static channel_op_res_t setup_reply_buffer(CURL *handle, write_callback_t *wrdata)
+{
+	wrdata->outdata->memory = NULL;
+	wrdata->outdata->size = 0;
+
+	if ((wrdata->outdata->memory = malloc(1)) == NULL) {
+		ERROR("Channel buffer reservation failed with OOM.");
+		return CHANNEL_ENOMEM;
+	}
+
+	if ((curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION,
+			      channel_callback_membuffer) != CURLE_OK) ||
+	    (curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)wrdata) != CURLE_OK)) {
+		ERROR("Cannot setup memory buffer writer callback function.");
+		return CHANNEL_EINIT;
+	}
+
+	return CHANNEL_OK;
+}
+
+static channel_op_res_t parse_reply(channel_data_t *channel_data, output_data_t *chunk)
+{
+	if (!chunk->memory) {
+		ERROR("Channel reply buffer was not filled.");
+		return CHANNEL_ENOMEM;
+	}
+
+#ifdef CONFIG_JSON
+	if (channel_data->format == CHANNEL_PARSE_JSON) {
+		assert(channel_data->json_reply == NULL);
+		enum json_tokener_error json_res;
+		struct json_tokener *json_tokenizer = json_tokener_new();
+		do {
+			channel_data->json_reply = json_tokener_parse_ex(
+			    json_tokenizer, chunk->memory, (int)chunk->size);
+		} while ((json_res = json_tokener_get_error(json_tokenizer)) ==
+			 json_tokener_continue);
+		/* json_tokenizer is not used for json_tokener_error_desc, hence can be freed here. */
+		json_tokener_free(json_tokenizer);
+		if (json_res != json_tokener_success) {
+			ERROR("Error while parsing channel's returned JSON data: %s",
+			      json_tokener_error_desc(json_res));
+			return CHANNEL_EBADMSG;
+		}
+	}
+#endif
+	if (channel_data->format == CHANNEL_PARSE_RAW) {
+		/* strndup is strnlen + malloc + memcpy, seems more appropriate than just malloc + memcpy. */
+		if ((channel_data->raw_reply = strndup(chunk->memory, chunk->size)) == NULL) {
+			ERROR("Channel reply buffer memory allocation failed with OOM.");
+			return CHANNEL_ENOMEM;
+		}
+	}
+
+	if (channel_data->debug) {
+		/* If reply is not \0 terminated, impose an upper bound. */
+		TRACE("Got channel reply: %s", strndupa(chunk->memory, chunk->size));
+	}
+	return CHANNEL_OK;
+}
+
+static channel_op_res_t channel_post_method(channel_t *this, void *data, int method)
 {
 	channel_curl_t *channel_curl = this->priv;
 	assert(data != NULL);
@@ -725,10 +843,8 @@ static channel_op_res_t channel_post_method(channel_t *this, void *data)
 
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
-
-	if (channel_data->debug) {
-		curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
-	}
+	output_data_t outdata = {};
+	write_callback_t wrdata = { .channel_data = channel_data, .outdata = &outdata };
 
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {
@@ -736,15 +852,38 @@ static channel_op_res_t channel_post_method(channel_t *this, void *data)
 		goto cleanup_header;
 	}
 
-	if ((result = channel_set_options(this, channel_data, CHANNEL_POST)) !=
-	    CHANNEL_OK) {
+	if ((result = channel_set_options(this, channel_data)) != CHANNEL_OK) {
 		ERROR("Set channel option failed.");
 		goto cleanup_header;
 	}
 
+	if ((result = setup_reply_buffer(channel_curl->handle, &wrdata)) != CHANNEL_OK) {
+		goto cleanup_header;
+	}
+
+	CURLcode curl_result;
+	if (method == CHANNEL_PATCH) {
+		curl_result = curl_easy_setopt(channel_curl->handle, CURLOPT_CUSTOMREQUEST, "PATCH");
+	} else {
+		curl_result = curl_easy_setopt(channel_curl->handle, CURLOPT_POST, 1L);
+	}
+	if (curl_result != CURLE_OK) {
+		result = CHANNEL_EINIT;
+		ERROR("Set POST/PATCH channel method option failed.");
+		goto cleanup_header;
+	}
+	if (curl_easy_setopt(channel_curl->handle, CURLOPT_POSTFIELDS, channel_data->request_body) != CURLE_OK) {
+		result = CHANNEL_EINIT;
+		ERROR("Set POST/PATCH channel data option failed.");
+		goto cleanup_header;
+	}
+	if (channel_data->debug) {
+		TRACE("POSTed/PATCHed to %s: %s", channel_data->url, channel_data->request_body);
+	}
+
 	CURLcode curlrc = curl_easy_perform(channel_curl->handle);
 	if (curlrc != CURLE_OK) {
-		ERROR("Channel put operation failed (%d): '%s'", curlrc,
+		ERROR("Channel POST/PATCH operation failed (%d): '%s'", curlrc,
 		      curl_easy_strerror(curlrc));
 		result = channel_map_curl_error(curlrc);
 		goto cleanup_header;
@@ -753,17 +892,18 @@ static channel_op_res_t channel_post_method(channel_t *this, void *data)
 	channel_log_effective_url(this);
 
 	result = channel_map_http_code(this, &channel_data->http_response_code);
-	if (result != CHANNEL_OK) {
-		ERROR("Channel operation returned HTTP error code %ld.",
-		      channel_data->http_response_code);
+
+	if (channel_data->nocheckanswer)
 		goto cleanup_header;
-	}
-	if (channel_data->debug) {
-		TRACE("Channel put operation returned HTTP status code %ld.",
-			channel_data->http_response_code);
+
+	channel_log_reply(result, channel_data, &outdata);
+
+	if (result == CHANNEL_OK) {
+	    result = parse_reply(channel_data, &outdata);
 	}
 
 cleanup_header:
+	outdata.memory != NULL ? free(outdata.memory) : (void)0;
 	curl_easy_reset(channel_curl->handle);
 	curl_slist_free_all(channel_curl->header);
 	channel_curl->header = NULL;
@@ -781,19 +921,21 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 	channel_data_t *channel_data = (channel_data_t *)data;
 	channel_data->offs = 0;
 
-	if (channel_data->debug) {
-		curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
-	}
-
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {
 		ERROR("Set content-type option failed.");
 		goto cleanup_header;
 	}
 
-	if ((result = channel_set_options(this, channel_data, CHANNEL_PUT)) !=
-	    CHANNEL_OK) {
+	if ((result = channel_set_options(this, channel_data)) != CHANNEL_OK) {
 		ERROR("Set channel option failed.");
+		goto cleanup_header;
+	}
+
+	if ((curl_easy_setopt(channel_curl->handle, CURLOPT_PUT, 1L) != CURLE_OK) ||
+	    (curl_easy_setopt(channel_curl->handle, CURLOPT_UPLOAD, 1L) != CURLE_OK)) {
+		ERROR("Set PUT channel method option failed.");
+		result = CHANNEL_EINIT;
 		goto cleanup_header;
 	}
 
@@ -818,13 +960,11 @@ static channel_op_res_t channel_put_method(channel_t *this, void *data)
 	channel_log_effective_url(this);
 
 	result = channel_map_http_code(this, &channel_data->http_response_code);
-	if (result != CHANNEL_OK) {
-		ERROR("Channel operation returned HTTP error code %ld.",
-		      channel_data->http_response_code);
+
+	if (channel_data->nocheckanswer)
 		goto cleanup_header;
-	}
-	TRACE("Channel put operation returned HTTP error code %ld.",
-	      channel_data->http_response_code);
+
+	channel_log_reply(result, channel_data, NULL);
 
 cleanup_header:
 	curl_easy_reset(channel_curl->handle);
@@ -845,9 +985,10 @@ channel_op_res_t channel_put(channel_t *this, void *data)
 	case CHANNEL_PUT:
 		return channel_put_method(this, data);
 	case CHANNEL_POST:
-		return channel_post_method(this, data);
+	case CHANNEL_PATCH:
+		return channel_post_method(this, data, channel_data->method);
 	default:
-		TRACE("Channel method (POST, PUT) is not set !");
+		TRACE("Channel method (POST, PUT, PATCH) is not set !");
 		return CHANNEL_EINIT;
 	}
 }
@@ -873,10 +1014,6 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 		}
 	}
 
-	if (channel_data->debug) {
-		curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
-	}
-
 	if (((channel_curl->header = curl_slist_append(
 		  channel_curl->header,
 		  "Content-Type: application/octet-stream")) == NULL) ||
@@ -888,17 +1025,28 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 		goto cleanup_header;
 	}
 
-	if ((result = channel_set_options(this, channel_data, CHANNEL_GET)) !=
-	    CHANNEL_OK) {
+	if ((result = channel_set_options(this, channel_data)) != CHANNEL_OK) {
 		ERROR("Set channel option failed.");
 		goto cleanup_header;
 	}
 
+	if (curl_easy_setopt(channel_curl->handle, CURLOPT_CUSTOMREQUEST, "GET") !=
+	    CURLE_OK) {
+		ERROR("Set GET channel method option failed.");
+		result = CHANNEL_EINIT;
+		goto cleanup_header;
+	}
+
+	struct swupdate_request req;
+	swupdate_prepare_req(&req);
+	req.dry_run = channel_data->dry_run;
+	req.source = channel_data->source;
+	if (channel_data->info) {
+		strncpy(req.info, channel_data->info,
+			  sizeof(req.info) - 1 );
+	}
 	for (int retries = 3; retries >= 0; retries--) {
-		file_handle = ipc_inst_start_ext(channel_data->source,
-			channel_data->info == NULL ? 0 : strlen(channel_data->info),
-			channel_data->info,
-			false /*no dryrun */);
+		file_handle = ipc_inst_start_ext( &req, sizeof(struct swupdate_request));
 		if (file_handle > 0)
 			break;
 		sleep(1);
@@ -912,9 +1060,9 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 	write_callback_t wrdata;
 	wrdata.channel_data = channel_data;
 	wrdata.output = file_handle;
-	result_channel_callback_write_file = CHANNEL_OK;
+	result_channel_callback_ipc = CHANNEL_OK;
 	if ((curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEFUNCTION,
-			      channel_callback_write_file) != CURLE_OK) ||
+			      channel_callback_ipc) != CURLE_OK) ||
 	    (curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEDATA,
 			      &wrdata) != CURLE_OK)) {
 		ERROR("Cannot setup file writer callback function.");
@@ -931,6 +1079,28 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 	unsigned long long int total_bytes_downloaded = 0;
 	unsigned char try_count = 0;
 	CURLcode curlrc = CURLE_OK;
+
+	if (channel_data->cached_file) {
+
+		total_bytes_downloaded = resume_cache_file(channel_data->cached_file,
+							   &wrdata);
+		if (total_bytes_downloaded > 0) {
+			TRACE("Resume from cache file %s, restored %lld bytes",
+				channel_data->cached_file,
+				total_bytes_downloaded);
+	                /*
+			 * Simulate that a partial download was already done,
+			 * and tune parameters if retries is not set
+			 */
+			channel_data->retries++;
+			try_count++;
+		}
+	}
+
+	/*
+	 * If there is a cache file, read data from cache first
+	 * and load from URL the remaining data
+	 */
 	do {
 		if (try_count > 0) {
 			if (channel_data->retries == 0) {
@@ -1000,17 +1170,10 @@ channel_op_res_t channel_get_file(channel_t *this, void *data)
 	      total_bytes_downloaded, total_bytes_downloaded / 1024 / 1024);
 
 	result = channel_map_http_code(this, &channel_data->http_response_code);
-	if (result != CHANNEL_OK) {
-		ERROR("Channel operation returned HTTP error code %ld.",
-		      channel_data->http_response_code);
-		goto cleanup_file;
-	}
-	if (channel_data->debug) {
-		TRACE("Channel operation returned HTTP status code %ld.",
-			channel_data->http_response_code);
-	}
 
-	if (result_channel_callback_write_file != CHANNEL_OK) {
+	channel_log_reply(result, channel_data, NULL);
+
+	if (result_channel_callback_ipc != CHANNEL_OK) {
 		result = CHANNEL_EIO;
 		goto cleanup_file;
 	}
@@ -1061,10 +1224,8 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 	channel_op_res_t result = CHANNEL_OK;
 	channel_data_t *channel_data = (channel_data_t *)data;
 	channel_data->http_response_code = 0;
-
-	if (channel_data->debug) {
-		curl_easy_setopt(channel_curl->handle, CURLOPT_VERBOSE, 1L);
-	}
+	output_data_t outdata = {};
+	write_callback_t wrdata = { .channel_data = channel_data, .outdata = &outdata };
 
 	if ((result = channel_set_content_type(this, channel_data)) !=
 	    CHANNEL_OK) {
@@ -1072,30 +1233,20 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 		goto cleanup_header;
 	}
 
-	if ((result = channel_set_options(this, channel_data, CHANNEL_GET)) !=
-	    CHANNEL_OK) {
+	if ((result = channel_set_options(this, channel_data)) != CHANNEL_OK) {
 		ERROR("Set channel option failed.");
 		goto cleanup_header;
 	}
 
-	output_data_t chunk = {.memory = NULL, .size = 0};
-	if ((chunk.memory = malloc(1)) == NULL) {
-		ERROR("Channel buffer reservation failed with OOM.");
-		result = CHANNEL_ENOMEM;
+	if (curl_easy_setopt(channel_curl->handle, CURLOPT_CUSTOMREQUEST, "GET") !=
+	    CURLE_OK) {
+		ERROR("Set GET channel method option failed.");
+		result = CHANNEL_EINIT;
 		goto cleanup_header;
 	}
 
-	write_callback_t wrdata;
-	wrdata.channel_data = channel_data;
-	wrdata.outdata = &chunk;
-
-	if ((curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEFUNCTION,
-			      channel_callback_membuffer) != CURLE_OK) ||
-	    (curl_easy_setopt(channel_curl->handle, CURLOPT_WRITEDATA,
-			      (void *)&wrdata) != CURLE_OK)) {
-		ERROR("Cannot setup memory buffer writer callback function.");
-		result = CHANNEL_EINIT;
-		goto cleanup_chunk;
+	if ((result = setup_reply_buffer(channel_curl->handle, &wrdata)) != CHANNEL_OK) {
+		goto cleanup_header;
 	}
 
 	if (channel_data->debug) {
@@ -1106,62 +1257,24 @@ channel_op_res_t channel_get(channel_t *this, void *data)
 		ERROR("Channel get operation failed (%d): '%s'", curlrc,
 		      curl_easy_strerror(curlrc));
 		result = channel_map_curl_error(curlrc);
-		goto cleanup_chunk;
+		goto cleanup_header;
 	}
 
-	if (channel_data->debug) {
-		channel_log_effective_url(this);
-	}
+	channel_log_effective_url(this);
 
 	result = channel_map_http_code(this, &channel_data->http_response_code);
 
 	if (channel_data->nocheckanswer)
-		goto cleanup_chunk;
+		goto cleanup_header;
 
-	if (result != CHANNEL_OK) {
-		ERROR("Channel operation returned HTTP error code %ld.",
-		      channel_data->http_response_code);
-		switch (channel_data->http_response_code) {
-			case 403:
-			case 404:
-			case 500:
-				DEBUG("The error's message is: '%s'\n", chunk.memory);
-				break;
-			default:
-				break;
-		}
-		goto cleanup_chunk;
-	}
-	if (channel_data->debug) {
-		TRACE("Channel operation returned HTTP status code %ld.",
-			channel_data->http_response_code);
+	channel_log_reply(result, channel_data, &outdata);
+
+	if (result == CHANNEL_OK) {
+	    result = parse_reply(channel_data, &outdata);
 	}
 
-#ifdef CONFIG_JSON
-	assert(channel_data->json_reply == NULL);
-	enum json_tokener_error json_res;
-	struct json_tokener *json_tokenizer = json_tokener_new();
-	do {
-		channel_data->json_reply = json_tokener_parse_ex(
-		    json_tokenizer, chunk.memory, (int)chunk.size);
-	} while ((json_res = json_tokener_get_error(json_tokenizer)) ==
-		 json_tokener_continue);
-	if (json_res != json_tokener_success) {
-		ERROR("Error while parsing channel's returned JSON data: %s",
-		      json_tokener_error_desc(json_res));
-		result = CHANNEL_EBADMSG;
-		goto cleanup_json_tokenizer;
-	}
-	if (channel_data->debug) {
-		TRACE("Get JSON: %s", chunk.memory);
-	}
-
-cleanup_json_tokenizer:
-	json_tokener_free(json_tokenizer);
-#endif
-cleanup_chunk:
-	chunk.memory != NULL ? free(chunk.memory) : (void)0;
 cleanup_header:
+	outdata.memory != NULL ? free(outdata.memory) : (void)0;
 	curl_easy_reset(channel_curl->handle);
 	curl_slist_free_all(channel_curl->header);
 	channel_curl->header = NULL;
