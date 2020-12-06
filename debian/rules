@@ -28,11 +28,13 @@ ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 else
 	echo "# CONFIG_MTD is not set"     >> configs/debian_defconfig
 endif
-ifeq (,$(filter pkg.swupdate.uboot,$(DEB_BUILD_PROFILES)))
+ifneq (,$(filter pkg.swupdate.uboot,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_UBOOT=y                             >> configs/debian_defconfig
+else ifneq (,$(filter pkg.swupdate.grub,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_BOOTLOADER_GRUB=y                   >> configs/debian_defconfig
 	echo CONFIG_GRUBENV_PATH=\"/boot/grub/grubenv\" >> configs/debian_defconfig
 else
-	echo CONFIG_UBOOT=y                             >> configs/debian_defconfig
+	echo CONFIG_BOOTLOADER_NONE=y                   >> configs/debian_defconfig
 endif
 ifneq (,$(filter pkg.swupdate.p11,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_PKCS11=y >> configs/debian_defconfig
