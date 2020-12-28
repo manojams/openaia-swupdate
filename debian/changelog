@@ -1,4 +1,4 @@
-swupdate (2020.11-1) UNRELEASED; urgency=medium
+swupdate (2020.11-1) unstable; urgency=medium
 
   [ Bastian Germann ]
   * Fix test failed issues on mipsel and mips64el platforms (Closes: #972691)
@@ -9,7 +9,7 @@ swupdate (2020.11-1) UNRELEASED; urgency=medium
   * Add libswupdate0.1 package
   * Add 2020.11 copyright info
   * Remove unused build dependency
-  * New upstream version 2020.11
+  * New upstream version 2020.11 (Closes: #976055)
   * Set CROSS_COMPILE default
   * Rename config option
   * Add grub profile and fall back to in memory state
@@ -17,7 +17,7 @@ swupdate (2020.11-1) UNRELEASED; urgency=medium
   * d/copyright: Remove unclear OpenSSL exception
   * Trigger swupdate on usb media only
 
- -- SZ Lin (林上智) <szlin@debian.org>  Wed, 04 Nov 2020 10:38:19 +0800
+ -- SZ Lin (林上智) <szlin@debian.org>  Mon, 28 Dec 2020 17:07:42 +0800
 
 swupdate (2020.04-2) unstable; urgency=low
 
