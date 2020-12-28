@@ -40,6 +40,7 @@
 #include "network_interface.h"
 #include "mongoose_interface.h"
 #include "installer.h"
+#include "installer_priv.h"
 #include "progress.h"
 #include "pctl.h"
 #include "state.h"
@@ -71,7 +72,7 @@ pthread_cond_t stream_wkup = PTHREAD_COND_INITIALIZER;
 
 static struct installer inst;
 
-static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs)
+static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, bool encrypted)
 {
 	char output_file[MAX_IMAGE_FNAME];
 	struct filehdr fdh;
@@ -93,21 +94,22 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs)
 		ERROR("Path too long: %s%s", TMPDIR, fdh.filename);
 		return -1;
 	}
-	TRACE("Found file:\n\tfilename %s\n\tsize %u", fdh.filename, (unsigned int)fdh.size);
+	TRACE("Found file");
+	TRACE("\tfilename %s", fdh.filename);
+	TRACE("\tsize %u", (unsigned int)fdh.size);
 
 	fdout = openfileoutput(output_file);
 	if (fdout < 0)
 		return -1;
 
-	if (copyfile(fd, &fdout, fdh.size, poffs, 0, 0, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
+	if (copyfile(fd, &fdout, fdh.size, poffs, 0, 0, 0, &checksum, NULL,
+		     encrypted ? 1 : 0, NULL, NULL) < 0) {
 		close(fdout);
 		return -1;
 	}
-	if (checksum != (uint32_t)fdh.chksum) {
+	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
 		close(fdout);
-		ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
-			(unsigned int)checksum, (unsigned int)fdh.chksum);
-			return -1;
+		return -1;
 	}
 	close(fdout);
 
@@ -126,6 +128,11 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 	char output_file[MAX_IMAGE_FNAME];
 	const char* TMPDIR = get_tmpdir();
 	bool installed_directly = false;
+	bool encrypted_sw_desc = false;
+
+#ifdef CONFIG_ENCRYPTED_SW_DESCRIPTION
+	encrypted_sw_desc = true;
+#endif
 
 	/* preset the info about the install parts */
 
@@ -140,7 +147,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 		switch (status) {
 		/* Waiting for the first Header */
 		case STREAM_WAIT_DESCRIPTION:
-			if (extract_file_to_tmp(fd, SW_DESCRIPTION_FILENAME, &offset) < 0 )
+			if (extract_file_to_tmp(fd, SW_DESCRIPTION_FILENAME, &offset, encrypted_sw_desc) < 0 )
 				return -1;
 
 			status = STREAM_WAIT_SIGNATURE;
@@ -149,7 +156,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 		case STREAM_WAIT_SIGNATURE:
 #ifdef CONFIG_SIGNED_IMAGES
 			snprintf(output_file, sizeof(output_file), "%s.sig", SW_DESCRIPTION_FILENAME);
-			if (extract_file_to_tmp(fd, output_file, &offset) < 0 )
+			if (extract_file_to_tmp(fd, output_file, &offset, false) < 0 )
 				return -1;
 #endif
 			snprintf(output_file, sizeof(output_file), "%s%s", TMPDIR, SW_DESCRIPTION_FILENAME);
@@ -197,9 +204,9 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 					break;
 			}
 
-			TRACE("Found file:\n\tfilename %s\n\tsize %u %s",
-				fdh.filename,
-				(unsigned int)fdh.size,
+			TRACE("Found file");
+			TRACE("\tfilename %s", fdh.filename);
+			TRACE("\tsize %u %s", (unsigned int)fdh.size,
 				(skip == SKIP_FILE ? "Not required: skipping" : "required"));
 
 			fdout = -1;
@@ -218,9 +225,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 					close(fdout);
 					return -1;
 				}
-				if (checksum != (unsigned long)fdh.chksum) {
-					ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
-						(unsigned int)checksum, (unsigned int)fdh.chksum);
+				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
 					close(fdout);
 					return -1;
 				}
@@ -231,9 +236,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				if (copyfile(fd, &fdout, fdh.size, &offset, 0, skip, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
 					return -1;
 				}
-				if (checksum != (unsigned long)fdh.chksum) {
-					ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
-						(unsigned int)checksum, (unsigned int)fdh.chksum);
+				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
 					return -1;
 				}
 				break;
@@ -246,7 +249,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				 * just once
 				 */
 				if (!installed_directly) {
-					if (software->bootloader_transaction_marker) {
+					if (!software->globals.dry_run && software->bootloader_transaction_marker) {
 						save_state_string((char*)BOOTVAR_TRANSACTION, STATE_IN_PROGRESS);
 					}
 					installed_directly = true;
@@ -287,7 +290,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 			 */
 
 			LIST_FOREACH(img, &software->images, next) {
-				if (! img->required)
+				if (  img->skip)
 					continue;
 				if (! img->fname[0])
 					continue;
@@ -359,7 +362,11 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 	unsigned long offset;
 	char output_file[MAX_IMAGE_FNAME];
 	const char* TMPDIR = get_tmpdir();
+	bool encrypted_sw_desc = false;
 
+#ifdef CONFIG_ENCRYPTED_SW_DESCRIPTION
+	encrypted_sw_desc = true;
+#endif
 	if (fdin < 0)
 		return -EINVAL;
 
@@ -420,14 +427,14 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 	lseek(tmpfd, 0, SEEK_SET);
 	offset = 0;
 
-	if (extract_file_to_tmp(tmpfd, SW_DESCRIPTION_FILENAME, &offset) < 0) {
+	if (extract_file_to_tmp(tmpfd, SW_DESCRIPTION_FILENAME, &offset, encrypted_sw_desc) < 0) {
 		ERROR("%s cannot be extracted", SW_DESCRIPTION_FILENAME);
 		ret = -EINVAL;
 		goto no_copy_output;
 	}
 #ifdef CONFIG_SIGNED_IMAGES
 	snprintf(output_file, sizeof(output_file), "%s.sig", SW_DESCRIPTION_FILENAME);
-	if (extract_file_to_tmp(tmpfd, output_file, &offset) < 0 ) {
+	if (extract_file_to_tmp(tmpfd, output_file, &offset, false) < 0 ) {
 		ERROR("Signature cannot be extracted:%s", output_file);
 		ret = -EINVAL;
 		goto no_copy_output;
@@ -479,11 +486,13 @@ void *network_initializer(void *data)
 {
 	int ret;
 	struct swupdate_cfg *software = data;
+	struct swupdate_request *req;
 
 	/* No installation in progress */
 	memset(&inst, 0, sizeof(inst));
 	inst.fd = -1;
 	inst.status = IDLE;
+	inst.software = software;
 
 	/* fork off the local dialogs and network service */
 	network_thread_id = start_thread(network_thread, &inst);
@@ -500,13 +509,36 @@ void *network_initializer(void *data)
 		pthread_mutex_unlock(&stream_mutex);
 		notify(START, RECOVERY_NO_ERROR, INFOLEVEL, "Software Update started !");
 
+		req = &inst.req;
+
 		/*
-		 * Check if the dryrun flag is overwrittn
+		 * Check if the dry run flag is overwritten
 		 */
-		if (inst.dry_run)
+		switch (req->dry_run){
+		case RUN_DRYRUN:
 			software->globals.dry_run = 1;
-		else
+			break;
+		case RUN_INSTALL:
 			software->globals.dry_run = 0;
+			break;
+		case RUN_DEFAULT:
+		default:
+			software->globals.dry_run = software->globals.default_dry_run;
+		}
+
+		/*
+		 * Find the selection to be installed
+		 */
+		if ((strnlen(req->software_set, sizeof(req->software_set)) > 0) &&
+				(strnlen(req->running_mode, sizeof(req->running_mode)) > 0)) {
+			strlcpy(software->software_set, req->software_set, sizeof(software->software_set) - 1);
+			strlcpy(software->running_mode, req->running_mode, sizeof(software->running_mode) - 1);
+		} else {
+			strlcpy(software->software_set, software->globals.default_software_set,
+				sizeof(software->software_set) - 1);
+			strlcpy(software->running_mode, software->globals.default_running_mode,
+				sizeof(software->running_mode) - 1);
+		}
 
 		/*
 		 * Check if the stream should be saved
@@ -550,29 +582,37 @@ void *network_initializer(void *data)
 			 * must be successful. Set we have
 			 * initiated an update
 			 */
-			if (software->bootloader_transaction_marker) {
+			if (!software->globals.dry_run && software->bootloader_transaction_marker) {
 				save_state_string((char*)BOOTVAR_TRANSACTION, STATE_IN_PROGRESS);
 			}
 
 			notify(RUN, RECOVERY_NO_ERROR, INFOLEVEL, "Installation in progress");
 			ret = install_images(software, 0, 0);
 			if (ret != 0) {
-				if (software->bootloader_transaction_marker) {
+				if (!software->globals.dry_run && software->bootloader_transaction_marker) {
 					save_state_string((char*)BOOTVAR_TRANSACTION, STATE_FAILED);
 				}
 				notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
 				inst.last_install = FAILURE;
-
+				if (!software->globals.dry_run && save_state((char *)STATE_KEY, STATE_FAILED) != SERVER_OK) {
+					WARN("Cannot persistently store FAILED update state.");
+				}
 			} else {
 				/*
 				 * Clear the recovery variable to indicate to bootloader
 				 * that it is not required to start recovery again
 				 */
-				if (software->bootloader_transaction_marker) {
-					reset_state((char*)BOOTVAR_TRANSACTION);
+				if (!software->globals.dry_run && software->bootloader_transaction_marker) {
+					unset_state((char*)BOOTVAR_TRANSACTION);
 				}
-				notify(SUCCESS, RECOVERY_NO_ERROR, INFOLEVEL, "SWUPDATE successful !");
-				inst.last_install = SUCCESS;
+				if (!software->globals.dry_run && save_state((char *)STATE_KEY, STATE_INSTALLED) != SERVER_OK) {
+					ERROR("Cannot persistently store INSTALLED update state.");
+					notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Installation failed !");
+					inst.last_install = FAILURE;
+				} else {
+					notify(SUCCESS, RECOVERY_NO_ERROR, INFOLEVEL, "SWUPDATE successful !");
+					inst.last_install = SUCCESS;
+				}
 			}
 		} else {
 			inst.last_install = FAILURE;
@@ -595,16 +635,39 @@ void *network_initializer(void *data)
 }
 
 /*
+ * Accessors to get information about an update, they are the interface
+ * to the "inst" structure.
+ */
+
+void get_install_swset(char *buf, size_t len)
+{
+
+	if (!buf)
+		return;
+
+	strncpy(buf, inst.software->software_set, len - 1);
+
+}
+
+void get_install_running_mode(char *buf, size_t len)
+{
+
+	if (!buf)
+		return;
+
+	strncpy(buf, inst.software->running_mode, len - 1);
+}
+
+/*
  * Retrieve additional info sent by the source
  * The data is not locked because it is retrieve
  * at different times
  */
 int get_install_info(sourcetype *source, char *buf, size_t len)
 {
-	len = min(len, inst.len);
-
-	memcpy(buf, inst.info, len);
-	*source = inst.source;
+	len = min(len - 1, strlen(inst.req.info));
+	strncpy(buf, inst.req.info, len);
+	*source = inst.req.source;
 
 	return len;
 }

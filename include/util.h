@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #if defined(__linux__)
 #include <linux/types.h>
 #endif
@@ -22,7 +23,10 @@
 #define ENOMEM_ASPRINTF		-1
 
 #define SWUPDATE_SHA_DIGEST_LENGTH	20
-#define AES_BLOCK_SIZE	16
+#define AES_BLK_SIZE	16
+#define AES_128_KEY_LEN	16
+#define AES_192_KEY_LEN	24
+#define AES_256_KEY_LEN	32
 
 #define HWID_REGEXP_PREFIX	"#RE:"
 #define SWUPDATE_ALIGN(A,S)    (((A) + (S) - 1) & ~((S) - 1))
@@ -52,9 +56,9 @@ typedef enum {
 	ERRORLEVEL,
 	WARNLEVEL,
 	INFOLEVEL,
-	DEBUGLEVEL,
 	TRACELEVEL,
-	LASTLOGLEVEL=TRACELEVEL
+	DEBUGLEVEL,
+	LASTLOGLEVEL=DEBUGLEVEL
 } LOGLEVEL;
 
 /*
@@ -69,22 +73,14 @@ typedef enum {
 enum {
 	RECOVERY_NO_ERROR,
 	RECOVERY_ERROR,
-};
-
-struct installer {
-	int	fd;			/* install image file handle */
-	RECOVERY_STATUS	status;		/* "idle" or "request source" info */
-	RECOVERY_STATUS	last_install;	/* result from last installation */
-	int	last_error;		/* error code if installation failed */
-	char	errormsg[64];		/* error message if installation failed */
-	sourcetype source; 		/* Who triggered the update */
-	int	dry_run;		/* set it if no changes in hardware must be done */
-	unsigned int len;    		/* Len of data valid in info */
-	char	info[2048];   		/* info */
+	RECOVERY_DWL,
 };
 
 typedef void (*notifier) (RECOVERY_STATUS status, int error, int level, const char *msg);
 
+void notify(RECOVERY_STATUS status, int error, int level, const char *msg);
+void notify_init(void);
+void notifier_set_color(int level, char *col);
 #define swupdate_notify(status, format, level, arg...) do { \
 	if (loglevel >= level) { \
 		char tmpbuf[NOTIFY_BUF_SIZE]; \
@@ -137,10 +133,26 @@ typedef void (*notifier) (RECOVERY_STATUS status, int error, int level, const ch
 
 #define LG_16 4
 #define FROM_HEX(f) from_ascii (f, sizeof f, LG_16)
+#if !defined(CONFIG_DISABLE_CPIO_CRC)
+static inline bool swupdate_verify_chksum(const uint32_t chk1, const uint32_t chk2) {
+	bool ret = (chk1 == chk2);
+	if (!ret) {
+		ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
+			chk1, chk2);
+	}
+	return ret;
+}
+#else
+static inline bool swupdate_verify_chksum(
+		const uint32_t  __attribute__ ((__unused__))chk1,
+		const uint32_t  __attribute__ ((__unused__))chk2) {
+	return true;
+}
+#endif
 uintmax_t
 from_ascii (char const *where, size_t digs, unsigned logbase);
 int ascii_to_hash(unsigned char *hash, const char *s);
-int ascii_to_bin(unsigned char *hash, const char *s, size_t len);
+int ascii_to_bin(unsigned char *dest, size_t dstlen, const char *src);
 void hash_to_ascii(const unsigned char *hash, char *s);
 int IsValidHash(const unsigned char *hash);
 
@@ -179,7 +191,7 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
 	int skip_file, int compressed, uint32_t *checksum,
 	unsigned char *hash, int encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
-int extract_sw_description(int fd, const char *descfile, off_t *offs);
+int extract_sw_description(int fd, const char *descfile, off_t *offs, bool encrypted);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 			int encrypted, char *ivt, unsigned char *hash);
 int openfileoutput(const char *filename);
@@ -187,8 +199,6 @@ int mkpath(char *dir, mode_t mode);
 int swupdate_file_setnonblock(int fd, bool block);
 
 int register_notifier(notifier client);
-void notify(RECOVERY_STATUS status, int error, int level, const char *msg);
-void notify_init(void);
 int syslog_init(void);
 
 char **splitargs(char *args, int *argc);
@@ -199,7 +209,7 @@ size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
 int get_hw_revision(struct hw_type *hw);
 void get_sw_versions(char *cfgfname, struct swupdate_cfg *sw);
-__u64 version_to_number(const char *version_string);
+int compare_versions(const char* left_version, const char* right_version);
 int hwid_match(const char* rev, const char* hwrev);
 int check_hw_compatibility(struct swupdate_cfg *cfg);
 int count_elem_list(struct imglist *list);
@@ -209,12 +219,15 @@ void free_string_array(char **nodes);
 /* Decryption key functions */
 int load_decryption_key(char *fname);
 unsigned char *get_aes_key(void);
+char get_aes_keylen(void);
 unsigned char *get_aes_ivt(void);
 int set_aes_key(const char *key, const char *ivt);
 int set_aes_ivt(const char *ivt);
 
 /* Getting global information */
 int get_install_info(sourcetype *source, char *buf, size_t len);
+void get_install_swset(char *buf, size_t len);
+void get_install_running_mode(char *buf, size_t len);
 
 unsigned long long ustrtoull(const char *cp, unsigned int base);
 

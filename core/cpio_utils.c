@@ -38,6 +38,9 @@ int get_cpiohdr(unsigned char *buf, unsigned long *size,
 		return -EINVAL;
 
 	cpiohdr = (struct new_ascii_header *)buf;
+#ifdef CONFIG_DISABLE_CPIO_CRC
+	if (strncmp(cpiohdr->c_magic, "070701", 6) != 0)
+#endif
 	if (strncmp(cpiohdr->c_magic, "070702", 6) != 0) {
 		ERROR("CPIO Format not recognized: magic not found");
 			return -EINVAL;
@@ -211,7 +214,7 @@ struct DecryptState
 
 	void *dcrypt;	/* use a private context for decryption */
 	uint8_t input[BUFF_SIZE];
-	uint8_t output[BUFF_SIZE + AES_BLOCK_SIZE];
+	uint8_t output[BUFF_SIZE + AES_BLK_SIZE];
 	int outlen;
 	bool eof;
 };
@@ -243,7 +246,8 @@ static int decrypt_step(void *state, void *buffer, size_t size)
 		if (inlen != 0) {
 			ret = swupdate_DECRYPT_update(s->dcrypt,
 				s->output, &s->outlen, s->input, inlen);
-		} else {
+		}
+		if (inlen == 0 || s->outlen == 0) {
 			/*
 			 * Finalise the decryption. Further plaintext bytes may
 			 * be written at this stage.
@@ -389,7 +393,7 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 	unsigned int md_len = 0;
 	unsigned char *aes_key = NULL;
 	unsigned char *ivt = NULL;
-	unsigned char ivtbuf[32];
+	unsigned char ivtbuf[16];
 
 	struct InputState input_state = {
 		.fdin = fdin,
@@ -449,11 +453,11 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 
 	if (encrypted) {
 		aes_key = get_aes_key();
-		if (imgivt && strlen(imgivt) && !ascii_to_bin(ivtbuf, imgivt, sizeof(ivtbuf))) {
+		if (imgivt && strlen(imgivt) && !ascii_to_bin(ivtbuf, sizeof(ivtbuf), imgivt)) {
 			ivt = ivtbuf;
 		} else
 			ivt = get_aes_ivt();
-		decrypt_state.dcrypt = swupdate_DECRYPT_init(aes_key, ivt);
+		decrypt_state.dcrypt = swupdate_DECRYPT_init(aes_key, get_aes_keylen(), ivt);
 		if (!decrypt_state.dcrypt) {
 			ERROR("decrypt initialization failure, aborting");
 			ret = -EFAULT;
@@ -673,7 +677,7 @@ int extract_cpio_header(int fd, struct filehdr *fhdr, unsigned long *offset)
 	return 0;
 }
 
-int extract_sw_description(int fd, const char *descfile, off_t *offs)
+int extract_sw_description(int fd, const char *descfile, off_t *offs, bool encrypted)
 {
 	struct filehdr fdh;
 	unsigned long offset = *offs;
@@ -709,7 +713,7 @@ int extract_sw_description(int fd, const char *descfile, off_t *offs)
 		close(fdout);
 		return -1;
 	}
-	if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, NULL, 0, NULL, NULL) < 0) {
+	if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, NULL, encrypted ? 1 : 0, NULL, NULL) < 0) {
 		ERROR("%s corrupted or not valid", descfile);
 		close(fdout);
 		return -1;
@@ -717,17 +721,20 @@ int extract_sw_description(int fd, const char *descfile, off_t *offs)
 
 	close(fdout);
 
-	TRACE("Found file:\n\tfilename %s\n\tsize %lu\n\tchecksum 0x%lx %s",
-		fdh.filename,
-		(unsigned long)fdh.size,
+	TRACE("Found file");
+	TRACE("filename %s", fdh.filename);
+	TRACE("\tsize %lu", (unsigned long)fdh.size);
+	TRACE("\tchecksum 0x%lx %s",
 		(unsigned long)checksum,
 		(checksum == fdh.chksum) ? "VERIFIED" : "WRONG");
 
+#ifndef CONFIG_DISABLE_CPIO_CRC
 	if (checksum != fdh.chksum) {
 		ERROR("Checksum WRONG ! Computed 0x%lx, it should be 0x%lx",
 			(unsigned long)checksum, fdh.chksum);
 		return -1;
 	}
+#endif
 
 	*offs = offset;
 
@@ -793,9 +800,7 @@ off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 		(unsigned long)checksum,
 		(checksum == fdh.chksum) ? "VERIFIED" : "WRONG");
 
-	if (checksum != fdh.chksum) {
-		ERROR("Checksum WRONG ! Computed 0x%lx, it should be 0x%lx",
-			(unsigned long)checksum, fdh.chksum);
+	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
 		return -EINVAL;
 	}
 
@@ -839,9 +844,7 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 			return -1;
 		}
 
-		if ((uint32_t)(fdh.chksum) != checksum) {
-			ERROR("Checksum verification failed for %s: %x != %x",
-			fdh.filename, (uint32_t)fdh.chksum, checksum);
+		if (!swupdate_verify_chksum(fdh.chksum, checksum)) {
 			return -1;
 		}
 

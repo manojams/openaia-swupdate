@@ -40,7 +40,7 @@ static void sw_append_stream(struct img_type *img, const char *key,
 	if (!strcmp(key, "filename")) {
 		strlcpy(img->fname, value,
 			sizeof(img->fname));
-		img->required = 1;
+		img->skip = SKIP_NONE;
 	}
 	if (!strcmp(key, "name")) {
 		strlcpy(img->id.name, value,
@@ -51,8 +51,8 @@ static void sw_append_stream(struct img_type *img, const char *key,
 			sizeof(img->id.version));
 	}
 	if (!strcmp(key, "mtdname") || !strcmp(key, "dest"))
-		strlcpy(img->path, value,
-			sizeof(img->path));
+		strlcpy(img->mtdname, value,
+			sizeof(img->mtdname));
 	if (!strcmp(key, "filesystem"))
 		strlcpy(img->filesystem, value,
 			sizeof(img->filesystem));

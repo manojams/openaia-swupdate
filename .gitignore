@@ -10,6 +10,7 @@
 *.orig
 *.a
 *.o
+*.so.*
 *.su
 *~
 *.swp
@@ -42,6 +43,18 @@ tools/swupdate-hawkbitcfg
 tools/swupdate-sysrestart
 tools/*.map
 tools/*.out
+
+# 
+# Test unit
+#
+test/test_crypt
+test/test_hash
+test/test_json
+test/test_server_hawkbit
+test/test_verify
+test/*.out
+test/*.map
+
 
 #
 # Generated files

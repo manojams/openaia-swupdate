@@ -25,9 +25,11 @@ typedef enum {
 	CHANNEL_GET,
 	CHANNEL_POST,
 	CHANNEL_PUT,
+	CHANNEL_PATCH,
 } channel_method_t;
 
 typedef enum {
+	CHANNEL_PARSE_NONE,
 	CHANNEL_PARSE_JSON,
 	CHANNEL_PARSE_RAW
 } channel_body_t;
@@ -36,12 +38,15 @@ typedef enum {
 
 typedef struct {
 	char *url;
+	char *cached_file;
 	char *auth;
 	char *request_body;
 	char *iface;
 #ifdef CONFIG_JSON
 	json_object *json_reply;
 #endif
+	char *raw_reply;
+	bool dry_run;
 	char *cafile;
 	char *sslkey;
 	char *sslcert;
