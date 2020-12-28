@@ -1,7 +1,21 @@
-swupdate (2020.04-3) UNRELEASED; urgency=medium
+swupdate (2020.11-1) UNRELEASED; urgency=medium
 
   [ Bastian Germann ]
   * Fix test failed issues on mipsel and mips64el platforms (Closes: #972691)
+  * Drop upstream patch
+  * Add a pkcs11 profile
+  * Mark library packages Multi-Arch: same
+  * Move swupdate-dev to libswupdate-dev
+  * Add libswupdate0.1 package
+  * Add 2020.11 copyright info
+  * Remove unused build dependency
+  * New upstream version 2020.11
+  * Set CROSS_COMPILE default
+  * Rename config option
+  * Add grub profile and fall back to in memory state
+  * d/copyright: Remove outdated link
+  * d/copyright: Remove unclear OpenSSL exception
+  * Trigger swupdate on usb media only
 
  -- SZ Lin (林上智) <szlin@debian.org>  Wed, 04 Nov 2020 10:38:19 +0800
 

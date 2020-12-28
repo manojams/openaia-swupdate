@@ -76,6 +76,9 @@ static void lua_dump_table(lua_State *L, char *str, struct img_type *img, const 
 	/* Stack: table, ... */
 	lua_pushnil(L);
 	/* Stack: nil, table, ... */
+	if (!lua_istable(L, -2)) {
+		return;
+	}
 	while (lua_next(L, -2)) {
 		/* Stack: value, key, table, ... */
 		lua_pushvalue(L, -2);
@@ -161,7 +164,7 @@ void LUAstackDump(lua_State *L)
 				char *s;
 
 				if (asprintf(&s, "(%d) [table ]", i) != ENOMEM_ASPRINTF) {
-					lua_pushvalue(L, -1);
+					lua_pushvalue(L, i);
 					lua_dump_table(L, s, NULL, NULL);
 					lua_pop(L, 1);
 					free(s);
@@ -279,8 +282,8 @@ static void lua_string_to_img(struct img_type *img, const char *key,
 		strncpy(img->device, value,
 			sizeof(img->device));
 	if (!strcmp(key, "mtdname"))
-		strncpy(img->path, value,
-			sizeof(img->path));
+		strncpy(img->mtdname, value,
+			sizeof(img->mtdname));
 	if (!strcmp(key, "path"))
 		strncpy(img->path, value,
 			sizeof(img->path));
@@ -336,6 +339,8 @@ static void lua_number_to_img(struct img_type *img, const char *key,
 		img->size = (long long)val;
 	if (!strcmp(key, "checksum"))
 		img->checksum = (unsigned int)val;
+	if (!strcmp(key, "skip"))
+		img->skip = (unsigned int)val;
 }
 
 #ifdef CONFIG_HANDLER_IN_LUA
@@ -477,7 +482,7 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_STRING(img, "type", type);
 		LUA_PUSH_IMG_STRING(img, "device", device);
 		LUA_PUSH_IMG_STRING(img, "path", path);
-		LUA_PUSH_IMG_STRING(img, "mtdname", path);
+		LUA_PUSH_IMG_STRING(img, "mtdname", mtdname);
 		LUA_PUSH_IMG_STRING(img, "data", type_data);
 		LUA_PUSH_IMG_STRING(img, "filesystem", filesystem);
 		LUA_PUSH_IMG_STRING(img, "ivt", ivt_ascii);
@@ -492,6 +497,7 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_NUMBER(img, "offset", seek);
 		LUA_PUSH_IMG_NUMBER(img, "size", size);
 		LUA_PUSH_IMG_NUMBER(img, "checksum", checksum);
+		LUA_PUSH_IMG_NUMBER(img, "skip", skip);
 
 		switch (img->compressed) {
 			case COMPRESSED_ZLIB:
@@ -540,7 +546,7 @@ static void update_table(lua_State* L, struct img_type *img)
 #endif
 
 		lua_getfield(L, -1, "_private");
-		LUA_PUSH_IMG_NUMBER(img, "offset", offset);
+        LUA_PUSH_IMG_NUMBER(img, "offset", offset);
 		lua_pop(L, 1);
 
 		char *hashstring = alloca(2 * SHA256_HASH_LENGTH + 1);
@@ -825,6 +831,20 @@ static int l_set_bootenv(lua_State *L) {
 	return 0;
 }
 
+static int l_get_selection(lua_State *L) {
+	char tmp[SWUPDATE_GENERAL_STRING_SIZE];
+
+	tmp[0] = '\0';
+	get_install_swset(tmp, sizeof(tmp));
+	lua_pushstring(L, tmp);
+	tmp[0] = '\0';
+	get_install_running_mode(tmp, sizeof(tmp));
+	lua_pushstring(L, tmp);
+
+	return 2;
+}
+
+
 #ifdef CONFIG_HANDLER_IN_LUA
 static int l_get_tmpdir(lua_State *L)
 {
@@ -864,6 +884,7 @@ static const luaL_Reg l_swupdate[] = {
 static const luaL_Reg l_swupdate_bootenv[] = {
         { "get_bootenv", l_get_bootenv },
         { "set_bootenv", l_set_bootenv },
+        { "get_selection", l_get_selection },
         { NULL, NULL }
 };
 
@@ -906,6 +927,7 @@ static int luaopen_swupdate(lua_State *L)
 	lua_push_enum(L, "DOWNLOAD", DOWNLOAD);
 	lua_push_enum(L, "DONE", DONE);
 	lua_push_enum(L, "SUBPROCESS", SUBPROCESS);
+	lua_push_enum(L, "PROGRESS", SUBPROCESS);
 	lua_settable(L, -3);
 
 #ifdef CONFIG_HANDLER_IN_LUA
@@ -1107,10 +1129,13 @@ int lua_handlers_init(void)
 #else
 		if ((ret = luaL_dostring(gL, "require (\"swupdate_handlers\")")) != 0) {
 			INFO("No Lua handler(s) found.");
-			if (luaL_dostring(gL, "return package.path:gsub(';','\\n'):gsub('?','swupdate_handlers')") == 0) {
-				lua_pop(gL, 1);
-				TRACE("Lua handler search path:\n%s", lua_tostring(gL, -1));
-				lua_pop(gL, 1);
+			if (luaL_dostring(gL, "return package.path:gsub('?','swupdate_handlers'):gsub(';','\\0')") == 0) {
+				const char *paths = lua_tostring(gL, -2);
+				for (int i=lua_tonumber(gL, -1); i >= 0; i--) {
+					TRACE("\t%s", paths);
+					paths += strlen(paths) + 1;
+				}
+				lua_pop(gL, 2);
 			}
 		} else {
 			INFO("Lua handler(s) found.");

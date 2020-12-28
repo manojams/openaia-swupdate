@@ -9,10 +9,10 @@
 #include "util.h"
 #include <stdbool.h>
 
-#ifdef CONFIG_SURICATTA_STATE_CHOICE_BOOTLOADER
+#ifdef CONFIG_UPDATE_STATE_CHOICE_BOOTLOADER
 #define EXPANDTOKL2(token) token
 #define EXPANDTOK(token) EXPANDTOKL2(token)
-#define STATE_KEY EXPANDTOK(CONFIG_SURICATTA_STATE_BOOTLOADER)
+#define STATE_KEY EXPANDTOK(CONFIG_UPDATE_STATE_BOOTLOADER)
 #else
 #define STATE_KEY "none"
 #endif
@@ -52,13 +52,19 @@ static inline char* get_state_string(update_state_t state) {
 	switch (state) {
 		case STATE_IN_PROGRESS: return (char*)"in_progress";
 		case STATE_FAILED: return (char*)"failed";
+		case STATE_OK: return (char*)"ok";
+		case STATE_INSTALLED: return (char*)"installed";
+		case STATE_TESTING: return (char*)"testing";
+		case STATE_NOT_AVAILABLE: return (char*)"not_available";
+		case STATE_ERROR: return (char*)"error";
+		case STATE_WAIT: return (char*)"wait";
 		default: break;
 	}
-	return (char*)state;
+	return (char*)"<nil>";
 }
 
 server_op_res_t save_state(char *key, update_state_t value);
 server_op_res_t save_state_string(char *key, update_state_t value);
 server_op_res_t read_state(char *key, update_state_t *value);
-server_op_res_t reset_state(char *key);
+server_op_res_t unset_state(char *key);
 update_state_t get_state(void);

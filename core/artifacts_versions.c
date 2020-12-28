@@ -25,6 +25,7 @@
 #include "swupdate.h"
 #include "parselib.h"
 #include "swupdate_settings.h"
+#include "semver.h"
 
 /*
  * Read versions of components from a file, if provided
@@ -66,6 +67,7 @@ static int read_sw_version_file(struct swupdate_cfg *sw)
 			}
 			strlcpy(swcomp->name, name, sizeof(swcomp->name));
 			strlcpy(swcomp->version, version, sizeof(swcomp->version));
+
 			LIST_INSERT_HEAD(&sw->installed_sw_list, swcomp, next);
 			TRACE("Installed %s: Version %s",
 					swcomp->name,
@@ -154,6 +156,19 @@ void get_sw_versions(char __attribute__ ((__unused__)) *cfgname,
 }
 #endif
 
+static const char ACCEPTED_CHARS[] = "0123456789.";
+
+static bool is_oldstyle_version(const char* version_string)
+{
+	while (*version_string)
+	{
+		if (strchr(ACCEPTED_CHARS, *version_string) == NULL)
+			return false;
+		++version_string;
+	}
+	return true;
+}
+
 /*
  * convert a version string into a number
  * version string is in the format:
@@ -164,7 +179,7 @@ void get_sw_versions(char __attribute__ ((__unused__)) *cfgname,
  * Also major.minor or major.minor.revision are allowed
  * The conversion generates a 64 bit value that can be compared
  */
-__u64 version_to_number(const char *version_string)
+static __u64 version_to_number(const char *version_string)
 {
 	char **versions = NULL;
 	char **ver;
@@ -188,4 +203,71 @@ __u64 version_to_number(const char *version_string)
 	free(versions);
 
 	return version;
+}
+
+/*
+ * Compare 2 versions.
+ *
+ * Mind that this function accepts both version types:
+ * - old-style: major.minor.revision.buildinfo
+ * - semantic versioning: major.minor.patch[-prerelease][+buildinfo]
+ *   see https://semver.org
+ * - if neither works, we fallback to lexicographical comparison
+ *
+ * Returns -1, 0 or 1 of left is respectively lower than, equal to or greater than right.
+ */
+int compare_versions(const char* left_version, const char* right_version)
+{
+	if (is_oldstyle_version(left_version) && is_oldstyle_version(right_version))
+	{
+		__u64 left_u64 = version_to_number(left_version);
+		__u64 right_u64 = version_to_number(right_version);
+
+		DEBUG("Comparing old-style versions '%s' <-> '%s'", left_version, right_version);
+		TRACE("Parsed: '%llu' <-> '%llu'", left_u64, right_u64);
+
+		if (left_u64 < right_u64)
+			return -1;
+		else if (left_u64 > right_u64)
+			return 1;
+		else
+			return 0;
+	}
+	else
+	{
+		semver_t left_sem = {};
+		semver_t right_sem = {};
+		int comparison;
+
+		/*
+		 * Check if semantic version is possible
+		 */
+		if (!semver_parse(left_version, &left_sem) && !semver_parse(right_version, &right_sem)) {
+			DEBUG("Comparing semantic versions '%s' <-> '%s'", left_version, right_version);
+			if (loglevel >= TRACELEVEL)
+			{
+				char left_rendered[SWUPDATE_GENERAL_STRING_SIZE];
+				char right_rendered[SWUPDATE_GENERAL_STRING_SIZE];
+
+				left_rendered[0] = right_rendered[0] = '\0';
+
+				semver_render(&left_sem, left_rendered);
+				semver_render(&right_sem, right_rendered);
+				TRACE("Parsed: '%s' <-> '%s'", left_rendered, right_rendered);
+			}
+
+			comparison = semver_compare(left_sem, right_sem);
+			semver_free(&left_sem);
+			semver_free(&right_sem);
+			return comparison;
+		}
+		semver_free(&left_sem);
+		semver_free(&right_sem);
+
+		/*
+		 * Last attempt: just compare the two strings
+		 */
+		DEBUG("Comparing lexicographically '%s' <-> '%s'", left_version, right_version);
+		return strcmp(left_version, right_version);
+	}
 }

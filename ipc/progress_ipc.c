@@ -7,6 +7,7 @@
 
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <errno.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,7 +57,8 @@ static int _progress_ipc_connect(const char *socketpath, bool reconnect)
 		}
 		if (!reconnect) {
 			fprintf(stderr, "cannot communicate with SWUpdate via %s\n", socketpath);
-			exit(1);
+			close(fd);
+			return -1;
 		}
 
 		usleep(10000);
@@ -77,11 +79,16 @@ int progress_ipc_connect(bool reconnect)
 
 int progress_ipc_receive(int *connfd, struct progress_msg *msg) {
 	int ret = read(*connfd, msg, sizeof(*msg));
+
+	if (ret == -1 && (errno == EAGAIN || errno == EINTR))
+		return 0;
+
 	if (ret != sizeof(*msg)) {
 		fprintf(stdout, "Connection closing..\n");
 		close(*connfd);
 		*connfd = -1;
 		return -1;
 	}
+
 	return ret;
 }

@@ -49,13 +49,14 @@ static struct option long_options[] = {
     {"gatewaytoken", required_argument, NULL, 'g'},
     {"interface", required_argument, NULL, 'f'},
     {"disable-token-for-dwl", no_argument, NULL, '1'},
+    {"cache", required_argument, NULL, '2'},
     {NULL, 0, NULL, 0}};
 
 static unsigned short mandatory_argument_count = 0;
 static pthread_mutex_t notifylock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
- * See Hawkbit's API for an explanation
+ * See hawkBit's API for an explanation
  *
  */
 static const char *execution_values[] = { "closed", "proceeding", "canceled","scheduled", "rejected", "resumed", NULL };
@@ -114,6 +115,7 @@ server_hawkbit_t server_hawkbit = {.url = NULL,
 				   .cancel_url = NULL,
 				   .update_action = NULL,
 				   .usetokentodwl = true,
+				   .cached_file = NULL,
 				   .channel = NULL};
 
 static channel_data_t channel_data_defaults = {.debug = false,
@@ -168,7 +170,7 @@ static inline void server_hakwbit_settoken(const char *type, const char *token)
 static inline void server_hawkbit_error(const char *s)
 {
 	int cnt = server_hawkbit.errorcnt;
-	/* Store locally just the errors to send them back to hawkbit */
+	/* Store locally just the errors to send them back to hawkBit */
 	if ((s) &&
 		(cnt < HAWKBIT_MAX_REPORTED_ERRORS)) {
 		server_hawkbit.errors[cnt] = strdup(s);
@@ -235,7 +237,7 @@ static const char *json_get_deployment_update_action(json_object *json_reply)
 	}
 	TRACE("Server delivered unknown 'update' field, skipping..");
 	/*
-	 * Hawkbit API has just skip, forced, attempt, this
+	 * hawkBit API has just skip, forced, attempt, this
 	 * does not happen
 	 */
 	return deployment_update_action.skip;
@@ -316,6 +318,7 @@ server_op_res_t server_send_cancel_reply(channel_t *channel, const int action_id
 	channel_data_reply.url = url;
 	channel_data_reply.request_body = json_reply_string;
 	channel_data_reply.method = CHANNEL_POST;
+	channel_data_reply.format = CHANNEL_PARSE_NONE;
 	result = map_channel_retcode(channel->put(channel, (void *)&channel_data_reply));
 
 cleanup:
@@ -324,11 +327,6 @@ cleanup:
 	}
 	if (json_reply_string != NULL) {
 		free(json_reply_string);
-	}
-	if (channel_data_reply.json_reply != NULL &&
-	    json_object_put(channel_data_reply.json_reply) !=
-		JSON_OBJECT_FREED) {
-		ERROR("JSON object should be freed but was not.");
 	}
 
 	/*
@@ -433,6 +431,7 @@ server_send_deployment_reply(channel_t *channel,
 	}
 	channel_data.url = url;
 	channel_data.request_body = json_reply_string;
+	channel_data.format = CHANNEL_PARSE_NONE;
 	channel_data.method = CHANNEL_POST;
 	result = map_channel_retcode(channel->put(channel, (void *)&channel_data));
 
@@ -444,10 +443,6 @@ cleanup:
 	}
 	if (json_reply_string != NULL) {
 		free(json_reply_string);
-	}
-	if (channel_data.json_reply != NULL &&
-	    json_object_put(channel_data.json_reply) != JSON_OBJECT_FREED) {
-		ERROR("JSON object should be freed but was not.");
 	}
 	return result;
 }
@@ -631,7 +626,7 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 		}
 	}
 	TRACE("Associated Action ID for Update Action is %d", *action_id);
-	result = update_status == SERVER_OK ? result : update_status;
+	result = update_status;
 
 cleanup:
 	if (channel_data_device_info.json_reply != NULL &&
@@ -686,7 +681,7 @@ static int server_check_during_dwl(void)
 	}
 
 	/*
-	 * Send a device Info to the Hawkbit Server
+	 * Send a device Info to the hawkBit Server
 	 */
 	server_op_res_t result =
 	    server_get_deployment_info(channel, &channel_data, &action_id);
@@ -738,14 +733,23 @@ server_op_res_t server_has_pending_action(int *action_id)
 	}
 	if (result == SERVER_UPDATE_CANCELED) {
 		DEBUG("Acknowledging cancelled update.");
-		(void)server_send_cancel_reply(server_hawkbit.channel, *action_id);
 		/* Inform the installer that a CANCEL was received */
+		(void)server_send_cancel_reply(server_hawkbit.channel, *action_id);
+
+		server_hawkbit.update_state = STATE_OK;
+		/*
+		 * Save the state
+		 */
+		if ((result = save_state((char *)STATE_KEY, STATE_OK)) != SERVER_OK) {
+			ERROR("Error while resetting update state on persistent "
+			"storage.\n");
+		}
 		return SERVER_OK;
 	}
 
 	/*
 	 * First check if initialization was completed or
-	 * a feedback should be sent to Hawkbit
+	 * a feedback should be sent to hawkBit
 	 */
 	if (server_hawkbit.update_state == STATE_WAIT) {
 		return SERVER_OK;
@@ -775,7 +779,7 @@ server_op_res_t server_has_pending_action(int *action_id)
 static void add_detail_error(const char *s)
 {
 	int cnt = server_hawkbit.errorcnt;
-	/* Store locally just the errors to send them back to hawkbit */
+	/* Store locally just the errors to send them back to hawkBit */
 	if ((s) && (!strncmp(s, "ERROR", 5)) &&
 		(cnt < HAWKBIT_MAX_REPORTED_ERRORS)) {
 
@@ -897,7 +901,7 @@ server_op_res_t server_handle_initial_state(update_state_t stateovrrd)
 
 static int server_update_status_callback(ipc_message *msg)
 {
-	/* Store locally just the errors to send them back to hawkbit */
+	/* Store locally just the errors to send them back to hawkBit */
 	add_detail_error(msg->data.status.desc);
 
 	return 0;
@@ -1138,15 +1142,22 @@ server_op_res_t server_process_update_artifact(int action_id,
 
 		/*
 		 * There is no authorizytion token when file is loaded, because SWU
-		 * can be on a different server as Hawkbit with a different
+		 * can be on a different server as hawkBit with a different
 		 * authorization method.
 		 */
 		if (!server_hawkbit.usetokentodwl)
 			channel_data.auth_token = NULL;
 
 		/*
+		 * If there is a cached file, try to read the SWU from the file
+		 * first and then load the remaining from network
+		 */
+		if (server_hawkbit.cached_file)
+			channel_data.cached_file = server_hawkbit.cached_file;
+
+		/*
 		 * Retrieve current time to check download time
-		 * This is used in the callback to ask again the hawkbit
+		 * This is used in the callback to ask again the hawkBit
 		 * server if the download is longer as the polling time
 		 */
 
@@ -1154,7 +1165,7 @@ server_op_res_t server_process_update_artifact(int action_id,
 
 		/*
 		 * Start background task to collect logs and
-		 * send to Hawkbit server
+		 * send to hawkBit server
 		 */
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
@@ -1229,6 +1240,10 @@ cleanup:
 	if (!json_data_artifact_installed) {
 		server_hawkbit_error("No suitable .swu image found");
 		result = SERVER_EERR;
+	}
+	if (server_hawkbit.cached_file) {
+		free(server_hawkbit.cached_file);
+		server_hawkbit.cached_file = NULL;
 	}
 
 	return result;
@@ -1398,12 +1413,6 @@ server_op_res_t server_install_update(void)
 		}
 	}
 
-	if ((result = save_state((char *)STATE_KEY, STATE_INSTALLED)) !=
-	    SERVER_OK) {
-		ERROR("Cannot persistently store update state.");
-		goto cleanup;
-	}
-
 	if (server_send_deployment_reply(
 		server_hawkbit.channel,
 		action_id, json_data_chunk_max, json_data_chunk_count,
@@ -1428,6 +1437,7 @@ cleanup:
 	if (result == SERVER_OK) {
 		INFO("Update successful, executing post-update actions.");
 		ipc_message msg;
+		memset(&msg, 0, sizeof(msg));
 		if (ipc_postupdate(&msg) != 0) {
 			result = SERVER_EERR;
 		} else {
@@ -1565,7 +1575,7 @@ cleanup:
 void server_print_help(void)
 {
 	fprintf(
-	    stderr,
+	    stdout,
 	    "\t  -t, --tenant      * Set hawkBit tenant ID for this device.\n"
 	    "\t  -u, --url         * Host and port of the hawkBit instance, "
 	    "e.g., localhost:8080\n"
@@ -1584,8 +1594,9 @@ void server_print_help(void)
 	    "{http,all}_proxy env is tried.\n"
 	    "\t  -k, --targettoken   Set target token.\n"
 	    "\t  -g, --gatewaytoken  Set gateway token.\n"
-	    "\t  -f, --interface     Set the network interface to connect to Hawkbit.\n"
-	    "\t  --disable-token-for-dwl Do not send authentication header when downlloading SWU.\n",
+	    "\t  -f, --interface     Set the network interface to connect to hawkBit.\n"
+	    "\t  --disable-token-for-dwl Do not send authentication header when downlloading SWU.\n"
+	    "\t  --cache <file>      Use cache file as starting SWU\n",
 	    CHANNEL_DEFAULT_POLLING_INTERVAL, CHANNEL_DEFAULT_RESUME_TRIES,
 	    CHANNEL_DEFAULT_RESUME_DELAY);
 }
@@ -1645,7 +1656,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		read_module_settings(fname, "suricatta", server_hawkbit_settings,
 					NULL);
 		/*
-		 * Then try "hawkbit" because each server has its own
+		 * Then try "hawkBit" because each server has its own
 		 * section
 		 */
 		read_module_settings(fname, "hawkbit", server_hawkbit_settings,
@@ -1656,15 +1667,13 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 
 	if (loglevel >= DEBUGLEVEL) {
 		server_hawkbit.debug = true;
-	}
-	if (loglevel >= TRACELEVEL) {
 		channel_data_defaults.debug = true;
 	}
 
 	/* reset to optind=1 to parse suricatta's argument vector */
 	optind = 1;
 	opterr = 0;
-	while ((choice = getopt_long(argc, argv, "t:i:c:u:p:xr:y::w:k:g:f:",
+	while ((choice = getopt_long(argc, argv, "t:i:c:u:p:xr:y::w:k:g:f:2:",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case 't':
@@ -1745,6 +1754,9 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			break;
 		case '1':
 			server_hawkbit.usetokentodwl = false;
+			break;
+		case '2':
+			SETSTRING(server_hawkbit.cached_file, optarg);
 			break;
 		/* Ignore not recognized options, they can be already parsed by the caller */
 		case '?':
@@ -1831,7 +1843,7 @@ server_op_res_t server_stop(void)
 }
 
 /*
- * IPC is to control the Hawkbit's communication
+ * IPC is to control the hawkBit's communication
  */
 
 static server_op_res_t server_activation_ipc(ipc_message *msg)
@@ -1840,8 +1852,8 @@ static server_op_res_t server_activation_ipc(ipc_message *msg)
 	update_state_t update_state = STATE_NOT_AVAILABLE;
 	struct json_object *json_root;
 
-	json_root = server_tokenize_msg(msg->data.instmsg.buf,
-					sizeof(msg->data.instmsg.buf));
+	json_root = server_tokenize_msg(msg->data.procmsg.buf,
+					sizeof(msg->data.procmsg.buf));
 	if (!json_root)
 		return SERVER_EERR;
 
@@ -1896,7 +1908,15 @@ static server_op_res_t server_activation_ipc(ipc_message *msg)
 	result =
 	    server_get_deployment_info(server_hawkbit.channel, &channel_data, &server_action_id);
 
-	server_op_res_t response = SERVER_OK;
+        if (result != SERVER_OK && result != SERVER_UPDATE_AVAILABLE &&
+            result != SERVER_NO_UPDATE_AVAILABLE &&
+            result != SERVER_UPDATE_CANCELED && result != SERVER_ID_REQUESTED) {
+          DEBUG("Hawkbit is not accessible, bailing out (%d)", result);
+          result = SERVER_EERR;
+          goto cleanup;
+        }
+
+        server_op_res_t response = SERVER_OK;
 
 	if (result == SERVER_UPDATE_CANCELED) {
 		DEBUG("Acknowledging cancelled update.");
@@ -1925,11 +1945,15 @@ static server_op_res_t server_activation_ipc(ipc_message *msg)
 		/*
 		 * Save the state
 		 */
-		save_state((char *)STATE_KEY, STATE_OK);
+		if ((result = save_state((char *)STATE_KEY, STATE_OK)) != SERVER_OK) {
+			ERROR("Error while resetting update state on persistent "
+			"storage.\n");
+		}
 	}
 
-	msg->data.instmsg.len = 0;
+	msg->data.procmsg.len = 0;
 
+cleanup:
 	free(details);
 
 	return result;
@@ -1941,8 +1965,8 @@ static server_op_res_t server_configuration_ipc(ipc_message *msg)
 	unsigned int polling;
 	json_object *json_data;
 
-	json_root = server_tokenize_msg(msg->data.instmsg.buf,
-					sizeof(msg->data.instmsg.buf));
+	json_root = server_tokenize_msg(msg->data.procmsg.buf,
+					sizeof(msg->data.procmsg.buf));
 	if (!json_root)
 		return SERVER_EERR;
 
@@ -1964,7 +1988,7 @@ server_op_res_t server_ipc(ipc_message *msg)
 {
 	server_op_res_t result = SERVER_OK;
 
-	switch (msg->data.instmsg.cmd) {
+	switch (msg->data.procmsg.cmd) {
 	case CMD_ACTIVATION:
 		result = server_activation_ipc(msg);
 		break;
@@ -1981,7 +2005,7 @@ server_op_res_t server_ipc(ipc_message *msg)
 	} else
 		msg->type = ACK;
 
-	msg->data.instmsg.len = 0;
+	msg->data.procmsg.len = 0;
 
 	return SERVER_OK;
 }

@@ -21,12 +21,12 @@ can be found in the `flyer <http://www.denx.de/en/pub/Software/WebHome/we-update
 Workshop and SWUpdate integration in project
 ============================================
 
-For quick integration of SWUpdate in your project, you could be interested in the `Workshop <http://www.denx.de/wiki/Training2/WebHome#WorkshopSWUpdate>`_
+For quick integration of SWUpdate in your project, you could be interested in the `Training <https://swupdate.org/services>`_
 
 Commercial support and board integration
 ========================================
 
-You can contact me at sbabic@denx.de if you need professional support or you need help to get SWUpdate on your device.
+Please check for `services <https://swupdate.org/services>` if you need professional support or you need help to get SWUpdate on your device.
 
 Talks about SWUpdate
 ====================
@@ -55,10 +55,16 @@ Talks about SWUpdate
          `Video ELCE 2017 <https://www.youtube.com/watch?v=6sKLH95g4Do>`_
        - Upgrading buildroot based devices with SWUpdate by Angelo Compagnucci, LinuxLab 2018,
          `Slides LinuxLab  2018 <https://www.slideshare.net/linuxlab_conf/angelo-compagnucci-upgrading-buildroot-based-devices-with-swupdate>`_,
-         `Video LinuxLab 2018 <https://www.youtube.com/watch?v=8vv5Xf6dBKE>`_
+         `Video LinuxLab 2018 <https://www.youtube.com/watch?v=8vv5Xf6dBKE>`_,
        - Evolution of (OTA) Update in the IoT world by Stefano Babic, ELC 2019,
          `Slides ELC 2019 <https://www.slideshare.net/StefanoBabic/evolution-of-otaupdateintheiotworld>`_,
-         `Video ELC 2019 <https://www.youtube.com/watch?v=WZHO18EhD7Y>`_
+         `Video ELC 2019 <https://www.youtube.com/watch?v=WZHO18EhD7Y>`_,
+       - There is No Store For Self-Driving Car Parts by Stephen Segal and Matt Fornero (Cruise LLC), ELC 2020,
+         `Slides Cruise ELC 2020 <https://static.sched.com/hosted_files/ossna2020/56/No_Store_for_AV_Parts_ELC_NA_2020.pdf>`_,
+         `Video Cruise <https://www.youtube.com/watch?v=PSq13Kv4Qk4>`_
+       - Secure Boot and Over-the-Air Updates - That's simple, no ? by Jan Kiszka (Siemens AG), ELC 2020,
+         `Slides Secure OTA ELC 2020 <https://static.sched.com/hosted_files/ossna2020/17/Secure-OTA-Updates_elc-na-2020.pdf>`_,
+         `Video Secure OTA <https://www.youtube.com/watch?v=vfYSP4qIJP0&t=1647s>`_
 
 Useful references
 =================
