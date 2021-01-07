@@ -16,6 +16,7 @@ swupdate (2020.11-1) unstable; urgency=medium
   * d/copyright: Remove outdated link
   * d/copyright: Remove unclear OpenSSL exception
   * Trigger swupdate on usb media only
+  * Disable remote handler
 
  -- SZ Lin (林上智) <szlin@debian.org>  Mon, 28 Dec 2020 17:07:42 +0800
 
