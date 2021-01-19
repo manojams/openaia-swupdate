@@ -1,3 +1,14 @@
+swupdate (2020.11-2) unstable; urgency=medium
+
+  [ Bastian Germann ]
+  * d/clean:
+    - Clean leftover files via dh_clean (Closes: #979806)
+  [ SZ Lin (林上智) ]
+  * d/control:
+    - Bump Standards-Version to 4.5.1
+
+ -- SZ Lin (林上智) <szlin@debian.org>  Tue, 19 Jan 2021 15:56:14 +0800
+
 swupdate (2020.11-1) unstable; urgency=medium
 
   [ Bastian Germann ]
