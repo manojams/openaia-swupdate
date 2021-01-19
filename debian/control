@@ -32,7 +32,7 @@ Build-Depends: debhelper-compat (= 13),
                texlive-latex-recommended <!nodoc>,
                texlive-fonts-recommended <!nodoc>,
                texlive-formats-extra <!nodoc>
-Standards-Version: 4.5.0
+Standards-Version: 4.5.1
 Rules-Requires-Root: no
 Homepage: https://sbabic.github.io/swupdate
 Vcs-Browser: https://salsa.debian.org/debian/swupdate
