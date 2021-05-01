@@ -1,53 +1,105 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: swupdate
 Upstream-Contact: Stefano Babic <sbabic@denx.de>
-Source: https://github.com/sbabic/swupdate/tree/debian
+Source: https://github.com/sbabic/swupdate
 
 Files:     *
-Copyright: 2014-2020 Stefano Babic <sbabic@denx.de>
-License:   GPL-2+
+Copyright: 2013-2020 Stefano Babic <sbabic@denx.de>
+License:   GPL-2
 
-Files:     corelib/channel_curl.c
-           corelib/verify_signature.c
-           corelib/swupdate_rsa_verify.c
-           corelib/swupdate_decrypt.c
-           corelib/swupdate_cms_verify.c
-           core/cpio_utils.c
-           core/swupdate.c
-           core/parser.c
-           corelib/swupdate_verify_private.h
-Copyright: 2014-2019 Stefano Babic <sbabic@denx.de>
-License: GPL-2+ with OpenSSL exception
+Files:     .editorconfig
+Copyright: 2019 Adrian Freihofer <adrian.freihofer@siemens.com>
+License:   CC0-1.0
+
+Files:     .gitignore
+           configs/*
+           handlers/lua/*
+Copyright: 2013, 2014, 2021 Stefano Babic <sbabic@denx.de>
+License:   CC0-1.0
+
+Files:     bootloader/grub.*
+Copyright: 2017, 3mdeb
+License:   GPL-2
+
+Files:     handlers/readback_handler.c
+Copyright: 2020 Bosch Sicherheitssysteme GmbH
+License:   GPL-2
+
+Files:     configs/bootloader_ebg_defconfig
+           configs/with_systemd_defconfig
+Copyright: 2021 Christian Storm <christian.storm@siemens.com>
+License:   CC0-1.0
+
+Files:     configs/mbedtls_defconfig
+           test/data/to-be-signed
+Copyright: 2019, 2021 Laszlo Ashin <laszlo@ashin.hu>
+License:   CC0-1.0
+
+Files:     configs/with_ucfw_defconfig
+Copyright: 2021 Pierre-Jean Texier <pjtexier@koncepto.io>
+License:   CC0-1.0
+
+Files:     core/syslog.c
+Copyright: 2016, Denis Osterland, Diehl Connectivity Solutions GmbH, Denis.Osterland@diehl.com.
+License:   GPL-2
 
 Files:     mongoose/mongoose.c
            mongoose/mongoose.h
-Copyright: 2014 Cesanta Software Limited
+Copyright: 2004-2013 Sergey Lyubka
+           2013-2020 Cesanta Software Limited
 License:   GPL-2
 
 Files:     mongoose/mongoose_interface.c
 Copyright: 2004-2013 Sergey Lyubka
            2013 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
            2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
-License:   GPL-2 with OpenSSL exception
+License:   Expat and GPL-2
+
+Files:     core/swupdate_dict.c
+Copyright: 2016 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
+           2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
+License:   GPL-2
+
+Files:     fs/*
+Copyright: 2021 Weidmueller Interface GmbH & Co. KG
+License:   GPL-2
+
+Files:     fs/diskio.h
+           fs/ff*
+Copyright: 2019, ChaN, all right reserved.
+License:   BSD-1-Clause-FatFs
+
+Files:     fs/mke2fs.c
+Copyright: 2021 Stefano Babic, sbabic@denx.de
+           1994-2005 by Theodore Ts'o.
+License:   GPL-2
 
 Files:     bindings/lua_swupdate.c
            include/swupdate_status.h
+           ipc/network_ipc-if.c
 Copyright: 2008-2018 DENX Software Engineering, Stefano Babic <sbabic@denx.de> 
 License:   LGPL-2.1+
+
+Files:     bindings/lua_compat_shared.c
+Copyright: 2018 Stefano Babic <sbabic@denx.de>
+License:   LGPL-2.1+
+
+Files:     core/Makefile
+Copyright: 1999-2005 by Erik Andersen <andersen@codepoet.org>
+License:   GPL-2
 
 Files:     core/semver.c
            include/semver.h
 Copyright: 2015-2017 Tomas Aparicio
 License:   Expat
 
-Files:     core/util.c
-Copyright: 2013 Stefano Babic, DENX Software Engineering, sbabic@denx.de
-           1998, 2015 Todd C. Miller <Todd.Miller@courtesan.com>
-License:   GPL-2+ and ISC
+Files:     core/strlcpy.c
+Copyright: 1998, 2015 Todd C. Miller <Todd.Miller@courtesan.com>
+License:   ISC
 
 Files:     corelib/swupdate_decrypt_pkcs11.c
 Copyright: 2020, Linutronix GmbH
-License:   GPL-2+
+License:   GPL-2
 
 Files:     include/network_ipc.h
            ipc/network_ipc.c
@@ -55,10 +107,28 @@ Copyright: 2008-2020 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
            on behalf of ifm electronic GmbH
 License:   LGPL-2.1+
 
+Files:     bootloader/ebg.c
+           ci/*.sh
+           core/state.c
+           include/channel*.h
+           corelib/channel_curl.c
+           include/compat.h
+           include/state.h
+           include/suricatta/*
+           handlers/rdiff_handler.c
+           suricatta/server_hawkbit.h
+           suricatta/suricatta.c
+Copyright: 2016, 2018 Siemens AG
+License:   GPL-2
+
+Files:     suricatta/Config.in
+Copyright: 2016 Christian Storm <christian.storm@tngtech.com>
+License:   GPL-2
+
 Files:     corelib/lua_compat.c
            include/progress_ipc.h
            ipc/progress_ipc.c
-Copyright: 2017 Siemens AG, Christian Storm <christian.storm@siemens.com> 
+Copyright: 2017 Siemens AG, Christian Storm <christian.storm@siemens.com>
 License:   LGPL-2.1+
 
 Files:     test/Makefile
@@ -68,10 +138,24 @@ Files:     test/Makefile
 Copyright: 2016-2017 Siemens AG, Christian Storm <christian.storm@siemens.com>
 License:   GPL-2+
 
+Files:     test/test_hash.c
+           test/test_verify.c
+Copyright: 2019 Laszlo Ashin <laszlo@ashin.hu>
+License:   GPL-2+
+
+Files:     corelib/swupdate_decrypt_mbedtls.c
+           corelib/verify_signature_mbedtls.c
+Copyright: 2019 Laszlo Ashin <laszlo@ashin.hu>
+License:   GPL-2
+
 Files:     scripts/acceptance-tests/Makefile 
            scripts/acceptance-tests/CheckImage.mk
 Copyright: 2016 Diehl Connectivity Solutions GmbH, Denis Osterland <Denis.Osterland@diehl.com>
 License:   GPL-2+
+
+Files:     scripts/kconfig/*
+Copyright: 2002 Roman Zippel <zippel@linux-m68k.org>
+License:   GPL-2
 
 Files:     scripts/kconfig/lxdialog/checklist.c 
 Copyright: Savio Lam <lam836@cs.cuhk.hk>
@@ -112,21 +196,14 @@ Files:     web-app/css/swupdate.css
 Copyright: 2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
 License:   Expat
 
-Files:     scripts/kconfig/conf.c
-           scripts/kconfig/confdata.c
-           scripts/kconfig/expr.c
-           scripts/kconfig/expr.h
-           scripts/kconfig/images.c
-           scripts/kconfig/lkc.h
-           scripts/kconfig/menu.c
-           scripts/kconfig/qconf.cc
-           scripts/kconfig/qconf.h
-           scripts/kconfig/symbol.c
-           scripts/kconfig/zconf.l
-           scripts/kconfig/zconf.lex.c_shipped
-           scripts/kconfig/zconf.y
-           scripts/kconfig/mconf.c
+Files:     scripts/kconfig/mconf.c
 Copyright: 2002 Roman Zippel <zippel@linux-m68k.org>
+           2002-11-06 Petr Baudis <pasky@ucw.cz>
+           2005, Arnaldo Carvalho de Melo <acme@conectiva.com.br>
+License:   GPL-2
+
+Files:     scripts/kconfig/kxgettext.c
+Copyright: Arnaldo Carvalho de Melo <acme@conectiva.com.br>, 2005
 License:   GPL-2
 
 Files:     scripts/kconfig/gconf.c
@@ -149,6 +226,10 @@ Copyright: 2009-2010 Wind River Systems, Inc.
            2011 Linaro
 License:   GPL-2
 
+Files:     scripts/kconfig/nconf.*
+Copyright: 2008 Nir Tzachar <nir.tzachar@gmail.com?
+License:   GPL-2
+
 Files:     scripts/kconfig/util.c
 Copyright: 2002-2005 Roman Zippel <zippel@linux-m68k.org>
            2002-2005 Sam Ravnborg <sam@ravnborg.org>
@@ -163,82 +244,28 @@ Copyright: 1984-2012 Free Software Foundation, Inc.
 License:   GPL-3+ WITH BISON EXCEPTION
 
 Files:     include/bsdqueue.h
-Copyright: 1991-1993 The Regents of the University of California
+Copyright: 1991, 1993 The Regents of the University of California
 License:   BSD-3-Clause
 
 Files:     SWUpdate.svg
-Copyright: Andres Babic <andres.babic@gmail.com>
+Comment:   See also https://github.com/sbabic/swupdate/commit/3612a85f3664356b8
+Copyright: 2016 Andres Babic <andres.babic@gmail.com>
 License:   CC-BY-SA-4.0
 
 Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
+           2020, 2021 Bastian Germann
 License:   GPL-2+
 
-Files:     debian/swupdate.init
+Files:     .travis.yml
+           debian/swupdate.init
            debian/swupdate*.service
            debian/swupdate.udev
            debian/swupdate.sh
            debian/swupdate.socket
            debian/swupdate.tmpfiles
-Copyright: Copyright (C) 2015 Stefano Babic <sbabic@denx.de>
+Copyright: 2015, 2017 Stefano Babic <sbabic@denx.de>
 License:   Expat
-
-License:   GPL-2+ with OpenSSL exception
- This package is free software; you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation; either version 2 of the License, or
- (at your option) any later version.
- .
- In addition, as a special exception, the author of this
- program gives permission to link the code of its
- release with the OpenSSL project's "OpenSSL" library (or
- with modified versions of it that use the same license as
- the "OpenSSL" library), and distribute the linked
- executables. You must obey the GNU General Public
- License in all respects for all of the code used other
- than "OpenSSL".  If you modify this file, you may extend
- this exception to your version of the file, but you are
- not obligated to do so.  If you do not wish to do so,
- delete this exception statement from your version.
- .
- This package is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- .
- You should have received a copy of the GNU General Public License
- along with this program. If not, see <https://www.gnu.org/licenses/>
- .
- On Debian systems, the complete text of the GNU General
- Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
-
-License:   GPL-2 with OpenSSL exception
- This package is free software; you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation; either version 2 of the License.
- .
- In addition, as a special exception, the author of this
- program gives permission to link the code of its
- release with the OpenSSL project's "OpenSSL" library (or
- with modified versions of it that use the same license as
- the "OpenSSL" library), and distribute the linked
- executables. You must obey the GNU General Public
- License in all respects for all of the code used other
- than "OpenSSL".  If you modify this file, you may extend
- this exception to your version of the file, but you are
- not obligated to do so.  If you do not wish to do so,
- delete this exception statement from your version.
- .
- This package is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- .
- You should have received a copy of the GNU General Public License
- along with this program. If not, see <https://www.gnu.org/licenses/>
- .
- On Debian systems, the complete text of the GNU General
- Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
 
 License:   LGPL-2.1+
  This library is free software; you can redistribute it and/or
@@ -311,7 +338,20 @@ License: GPL-2
  On Debian systems, the complete text of the GNU General
  Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
 
-License: BSD-3-clause
+License: BSD-1-Clause-FatFs
+ FatFs module is an open source software. Redistribution and use of FatFs in
+ source and binary forms, with or without modification, are permitted provided
+ that the following condition is met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this condition and the following disclaimer.
+ .
+ This software is provided by the copyright holder and contributors "AS IS"
+ and any warranties related to this software are DISCLAIMED.
+ The copyright owner or contributors be NOT LIABLE for any damages caused
+ by use of this software.
+
+License: BSD-3-Clause
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
  1. Redistributions of source code must retain the above copyright notice,
@@ -373,6 +413,10 @@ License: GPL-3+ WITH BISON EXCEPTION
  .
  This special exception was added by the Free Software Foundation in
  version 2.2 of Bison.
+
+License: CC0-1.0
+ On Debian systems, the complete text of the CC0 1.0 Universal license
+ can be found in "/usr/share/common-licenses/CC0-1.0".
 
 License: CC-BY-SA-4.0
  Attribution-ShareAlike 4.0 International
