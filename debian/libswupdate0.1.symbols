@@ -19,3 +19,4 @@ libswupdate.so.0.1 libswupdate0.1 #MINVER#
  swupdate_image_write@Base 2020.11
  swupdate_prepare_req@Base 2020.11
  swupdate_set_aes@Base 2020.11
+ swupdate_set_version_range@Base 2021.04
