@@ -2,7 +2,7 @@
  * (C) Copyright 2012-2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _UTIL_H
@@ -17,6 +17,7 @@
 #endif
 #include "swupdate.h"
 #include "swupdate_status.h"
+#include "swupdate_settings.h"
 #include "compat.h"
 
 #define NOTIFY_BUF_SIZE 	2048
@@ -189,9 +190,8 @@ strlcpy(char *dst, const char * src, size_t size);
 int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
 	unsigned long long seek,
 	int skip_file, int compressed, uint32_t *checksum,
-	unsigned char *hash, int encrypted, const char *imgivt, writeimage callback);
+	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
-int extract_sw_description(int fd, const char *descfile, off_t *offs, bool encrypted);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 			int encrypted, char *ivt, unsigned char *hash);
 int openfileoutput(const char *filename);
@@ -208,13 +208,17 @@ char *substring(const char *src, int first, int len);
 size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
 int get_hw_revision(struct hw_type *hw);
-void get_sw_versions(char *cfgfname, struct swupdate_cfg *sw);
+void get_sw_versions(swupdate_cfg_handle *handle, struct swupdate_cfg *sw);
 int compare_versions(const char* left_version, const char* right_version);
 int hwid_match(const char* rev, const char* hwrev);
 int check_hw_compatibility(struct swupdate_cfg *cfg);
 int count_elem_list(struct imglist *list);
 unsigned int count_string_array(const char **nodes);
 void free_string_array(char **nodes);
+int read_lines_notify(int fd, char *buf, int buf_size, int *buf_offset,
+		      LOGLEVEL level);
+long long get_output_size(struct img_type *img, bool strict);
+bool img_check_free_space(struct img_type *img, int fd);
 
 /* Decryption key functions */
 int load_decryption_key(char *fname);
@@ -228,6 +232,12 @@ int set_aes_ivt(const char *ivt);
 int get_install_info(sourcetype *source, char *buf, size_t len);
 void get_install_swset(char *buf, size_t len);
 void get_install_running_mode(char *buf, size_t len);
+char *get_root_device(void);
+
+/* Setting global information */
+void set_version_range(const char *minversion,
+			const char *maxversion,
+			const char *current);
 
 unsigned long long ustrtoull(const char *cp, unsigned int base);
 

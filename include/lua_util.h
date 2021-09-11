@@ -3,7 +3,7 @@
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  * 	on behalf of ifm electronic GmbH
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _LUA_UTIL_H
@@ -14,6 +14,13 @@
 #include "lauxlib.h"
 #include "lualib.h"
 #include "util.h"
+
+typedef enum {
+	ROOT_DEV_PATH,
+	ROOT_DEV_UUID,
+	ROOT_DEV_PARTUUID,
+	ROOT_DEV_PARTLABEL
+} root_dev_type;
 
 void LUAstackDump (lua_State *L);
 int run_lua_script(const char *script, const char *function, char *parms);

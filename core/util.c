@@ -2,7 +2,7 @@
  * (C) Copyright 2013
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -23,6 +23,11 @@
 #include <time.h>
 #include <libgen.h>
 #include <regex.h>
+#include <string.h>
+
+#if defined(__linux__)
+#include <sys/statvfs.h>
+#endif
 
 #include "swupdate.h"
 #include "util.h"
@@ -223,39 +228,6 @@ char *substring(const char *src, int first, int len) {
 	return s;
 }
 
-#if defined(__linux__)
-
-/*
- * Copy string src to buffer dst of size dsize.  At most dsize-1
- * chars will be copied.  Always NUL terminates (unless dsize == 0).
- * Returns strlen(src); if retval >= dsize, truncation occurred.
- */
-size_t
-strlcpy(char * __restrict dst, const char * __restrict src, size_t dsize)
-{
-	const char *osrc = src;
-	size_t nleft = dsize;
-
-	/* Copy as many bytes as will fit. */
-	if (nleft != 0) {
-		while (--nleft != 0) {
-			if ((*dst++ = *src++) == '\0')
-				break;
-		}
-	}
-
-	/* Not enough room in dst, add NUL and traverse rest of src. */
-	if (nleft == 0) {
-		if (dsize != 0)
-			*dst = '\0';		/* NUL-terminate dst */
-		while (*src++)
-			;
-	}
-
-	return(src - osrc - 1);	/* count does not include NUL */
-}
-#endif
-
 int openfileoutput(const char *filename)
 {
 	int fdout;
@@ -276,7 +248,7 @@ int mkpath(char *dir, mode_t mode)
 	if (strlen(dir) == 1 && dir[0] == '/')
 		return 0;
 
-	mkpath(dirname(strdupa(dir)), mode);
+	(void) mkpath(dirname(strdupa(dir)), mode);
 
 	if (mkdir(dir, mode) == -1) {
 		if (errno != EEXIST)
@@ -499,7 +471,7 @@ int IsValidHash(const unsigned char *hash)
 
 	for (i = 0; i < SHA256_HASH_LENGTH; i++) {
 		if (hash[i] != 0)
-			return 1;		
+			return 1;
 	}
 
 	return 0;
@@ -876,4 +848,233 @@ size_t snescape(char *dst, size_t n, const char *src)
 	return len;
 }
 
+/*
+ * This returns the device name where rootfs is mounted
+ */
+static char *get_root_from_partitions(void)
+{
+	struct stat info;
+	FILE *fp;
+	char *devname = NULL;
+	unsigned long major, minor, nblocks;
+	char buf[256];
+	int ret;
 
+	if (stat("/", &info) < 0)
+		return NULL;
+
+	fp = fopen("/proc/partitions", "r");
+	if (!fp)
+		return NULL;
+
+	while (fgets(buf, sizeof(buf), fp)) {
+		ret = sscanf(buf, "%ld %ld %ld %ms",
+			     &major, &minor, &nblocks, &devname);
+		if (ret != 4)
+			continue;
+		if ((major == info.st_dev / 256) && (minor == info.st_dev % 256)) {
+			fclose(fp);
+			return devname;
+		}
+		free(devname);
+	}
+
+	fclose(fp);
+	return NULL;
+}
+
+#define MAX_CMDLINE_LENGTH 4096
+static char *get_root_from_cmdline(void)
+{
+	char *buf;
+	FILE *fp;
+	char *root = NULL;
+	int ret;
+	char **parms = NULL;
+
+	fp = fopen("/proc/cmdline", "r");
+	if (!fp)
+		return NULL;
+	buf = (char *)calloc(1, MAX_CMDLINE_LENGTH);
+	if (!buf) {
+		fclose(fp);
+		return NULL;
+	}
+	/*
+	 * buf must be zero terminated, so let the last one
+	 * for the NULL termination
+	 */
+	ret = fread(buf, 1, MAX_CMDLINE_LENGTH - 1, fp);
+
+	/*
+	 * this is just to drop coverity issue, but
+	 * the buffer is already initialized by calloc to zeroes
+	 */
+	buf[MAX_CMDLINE_LENGTH - 1] = '\0';
+
+	if (ret > 0) {
+		parms = string_split(buf, ' ');
+		int nparms = count_string_array((const char **)parms);
+		for (unsigned int index = 0; index < nparms; index++) {
+			if (!strncmp(parms[index], "root=", strlen("root="))) {
+				const char *value = parms[index] + strlen("root=");
+				root = strdup(value);
+				break;
+			}
+		}
+	}
+	fclose(fp);
+	free_string_array(parms);
+	free(buf);
+	return root;
+}
+
+char *get_root_device(void)
+{
+	char *root = NULL;
+
+	root = get_root_from_partitions();
+	if (!root)
+		root = get_root_from_cmdline();
+
+	return root;
+}
+
+int read_lines_notify(int fd, char *buf, int buf_size, int *buf_offset,
+		      LOGLEVEL level)
+{
+	int n;
+	int offset = *buf_offset;
+	int print_last = 0;
+
+	n = read(fd, &buf[offset], buf_size - offset - 1);
+	if (n <= 0)
+		return -errno;
+
+	n += offset;
+	buf[n] = '\0';
+
+	/*
+	 * Only print the last line of the split array if it represents a
+	 * full line, as string_split (strtok) makes it impossible to tell
+	 * afterwards if the buffer ended with separator.
+	 */
+	if (buf[n-1] == '\n') {
+		print_last = 1;
+	}
+
+	char **lines = string_split(buf, '\n');
+	int nlines = count_string_array((const char **)lines);
+	/*
+	 * If the buffer is full and there is only one line,
+	 * print it anyway.
+	 */
+	if (n >= buf_size - 1 && nlines == 1)
+		print_last = 1;
+
+	/* copy leftover data for next call */
+	if (!print_last) {
+		int left = snprintf(buf, buf_size, "%s", lines[nlines-1]);
+		*buf_offset = left;
+		nlines--;
+		n -= left;
+	} else { /* no need to copy, reuse all buffer */
+		*buf_offset = 0;
+	}
+
+	for (unsigned int index = 0; index < nlines; index++) {
+		RECOVERY_STATUS status = level == ERRORLEVEL ? FAILURE : RUN;
+		swupdate_notify(status, "%s", level, lines[index]);
+	}
+
+	free_string_array(lines);
+
+	return n;
+}
+
+long long get_output_size(struct img_type *img, bool strict)
+{
+	char *output_size_str = NULL;
+	long long bytes = img->size;
+
+	if (img->compressed) {
+		output_size_str = dict_get_value(&img->properties, "decompressed-size");
+		if (!output_size_str) {
+			if (!strict)
+				return bytes;
+
+			ERROR("image is compressed but 'decompressed-size' property was not found");
+			return -ENOENT;
+		}
+
+		bytes = ustrtoull(output_size_str, 0);
+		if (errno || bytes <= 0) {
+			ERROR("decompressed-size argument %s: ustrtoull failed",
+			      output_size_str);
+			return -1;
+		}
+
+		TRACE("Image is compressed, decompressed size %lld bytes", bytes);
+
+	} else if (img->is_encrypted) {
+		output_size_str = dict_get_value(&img->properties, "decrypted-size");
+		if (!output_size_str) {
+			if (!strict)
+				return bytes;
+			ERROR("image is encrypted but 'decrypted-size' property was not found");
+			return -ENOENT;
+		}
+
+		bytes = ustrtoull(output_size_str, 0);
+		if (errno || bytes <= 0) {
+			ERROR("decrypted-size argument %s: ustrtoull failed",
+			      output_size_str);
+			return -1;
+		}
+
+		TRACE("Image is crypted, decrypted size %lld bytes", bytes);
+	}
+
+	return bytes;
+}
+
+static bool check_free_space(int fd, long long size, char *fname)
+{
+	/* This needs OS-specific implementation because linux's statfs
+	 * f_bsize is optimal IO size vs. statvfs f_bsize fs block size,
+	 * and freeBSD is the opposite...
+	 * As everything else is the same down to field names work around
+	 * this by just defining an alias
+	 */
+#if defined(__FreeBSD__)
+#define statvfs statfs
+#define fstatvfs fstatfs
+#endif
+	struct statvfs statvfs;
+
+	if (fstatvfs(fd, &statvfs)) {
+		ERROR("Statfs failed on %s, skipping free space check", fname);
+		return true;
+	}
+
+	if (statvfs.f_bfree * statvfs.f_bsize < size) {
+		ERROR("Not enough free space to extract %s (needed %llu, got %lu)",
+		       fname, size, statvfs.f_bfree * statvfs.f_bsize);
+		return false;
+	}
+
+	return true;
+}
+
+bool img_check_free_space(struct img_type *img, int fd)
+{
+	long long size;
+
+	size = get_output_size(img, false);
+
+	if (size <= 0)
+		/* Skip check if no size found */
+		return true;
+
+	return check_free_space(fd, size, img->fname);
+}

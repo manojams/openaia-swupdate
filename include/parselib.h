@@ -2,7 +2,7 @@
  * (C) Copyright 2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _PARSE_LIBRARY_H
@@ -84,8 +84,6 @@ void *get_node_json(json_object *root, const char **nodes);
 #define find_root_json(root, nodes, depth)	(NULL)
 #define get_node_json(root, nodes)	(NULL)
 #endif
-
-typedef int (*settings_callback)(void *elem, void *data);
 
 const char *get_field_string(parsertype p, void *e, const char *path);
 void get_field_string_with_size(parsertype p, void *e, const char *path,

@@ -2,13 +2,14 @@
  * (C) Copyright 2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _SWUPDATE_PCTL_H
 #define _SWUPDATE_PCTL_H
 
 #include <swupdate_status.h>
+#include <sys/types.h>
 
 extern int pid;
 extern int sw_sockfd;
@@ -26,13 +27,20 @@ struct swupdate_task {
 
 pthread_t start_thread(void *(* start_routine) (void *), void *arg);
 
+void thread_ready(void);
+void wait_threads_ready(void);
+
 typedef int (*swupdate_process)(const char *cfgname, int argc, char **argv);
 
-void start_subprocess(sourcetype type, const char *name, const char *cfgfile,
+void start_subprocess(sourcetype type, const char *name,
+			uid_t run_as_userid, gid_t run_as_groupid,
+			const char *cfgfile,
 			int argc, char **argv,
 			swupdate_process start);
 
-void start_subprocess_from_file(sourcetype type, const char *name, const char *cfgfile,
+void start_subprocess_from_file(sourcetype type, const char *name,
+			uid_t run_as_userid, gid_t run_as_groupid,
+			const char *cfgfile,
 			int argc, char **argv,
 			const char *cmd);
 

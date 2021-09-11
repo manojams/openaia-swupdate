@@ -2,7 +2,7 @@
  * Author: Christian Storm
  * Copyright (C) 2016, Siemens AG
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdbool.h>
@@ -181,9 +181,14 @@ int start_suricatta(const char *cfgfname, int argc, char *argv[])
 	 * First check for common properties that do not depend
 	 * from server implementation
 	 */
-	if (cfgfname)
-		read_module_settings(cfgfname, "suricatta", suricatta_settings,
-					NULL);
+	if (cfgfname) {
+		swupdate_cfg_handle handle;
+		swupdate_cfg_init(&handle);
+		if (swupdate_cfg_read_file(&handle, cfgfname) == 0) {
+			read_module_settings(&handle, "suricatta", suricatta_settings, NULL);
+		}
+		swupdate_cfg_destroy(&handle);
+	}
 	optind = 1;
 	opterr = 0;
 

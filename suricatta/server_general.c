@@ -2,7 +2,7 @@
  * (C) Copyright 2018
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 /*
@@ -265,9 +265,15 @@ static void *server_progress_thread (void *data)
 		pthread_exit((void *)SERVER_EINIT);
 	}
 
-	if(prog->fname)
-		read_module_settings(prog->fname, "gservice.logevent", server_logevent_settings,
+	if(prog->fname) {
+		swupdate_cfg_handle handle;
+		swupdate_cfg_init(&handle);
+		if (swupdate_cfg_read_file(&handle, prog->fname) == 0) {
+			read_module_settings(&handle, "gservice.logevent", server_logevent_settings,
 					&fmtevents);
+		}
+		swupdate_cfg_destroy(&handle);
+	}
 
 	/*
 	 * The URL to send log is fixed and part of the configuration
@@ -604,11 +610,13 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	LIST_INIT(&server_general.configdata);
 
 	if (fname) {
-
-		read_module_settings(fname, "gservice", server_general_settings,
-					NULL);
-		read_module_settings(fname, "identify", settings_into_dict,
-					&server_general.configdata);
+		swupdate_cfg_handle handle;
+		swupdate_cfg_init(&handle);
+		if (swupdate_cfg_read_file(&handle, fname) == 0) {
+			read_module_settings(&handle, "gservice", server_general_settings, NULL);
+			read_module_settings(&handle, "identify", settings_into_dict, &server_general.configdata);
+		}
+		swupdate_cfg_destroy(&handle);
 	}
 
 	if (loglevel >= DEBUGLEVEL) {

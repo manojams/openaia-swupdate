@@ -2,7 +2,7 @@
  * (C) Copyright 2020
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _INSTALLER_PRIV_H
@@ -18,7 +18,7 @@ struct installer {
 	int	last_error;		/* error code if installation failed */
 	char	errormsg[64];		/* error message if installation failed */
 	struct swupdate_request req;
-	struct swupdate_cfg const *software;
+	struct swupdate_cfg *software;
 };
 
 #endif

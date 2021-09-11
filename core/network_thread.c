@@ -3,7 +3,7 @@
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  * 	on behalf of ifm electronic GmbH
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -56,6 +56,19 @@ static unsigned long nrmsgs = 0;
 
 static pthread_mutex_t msglock = PTHREAD_MUTEX_INITIALIZER;
 
+struct subprocess_msg_elem {
+	ipc_message message;
+	int client;
+	SIMPLEQ_ENTRY(subprocess_msg_elem) next;
+};
+
+SIMPLEQ_HEAD(subprocess_msglist, subprocess_msg_elem);
+static struct subprocess_msglist subprocess_messages;
+
+static pthread_t subprocess_ipc_handler_thread_id;
+static pthread_mutex_t subprocess_msg_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t subprocess_wkup = PTHREAD_COND_INITIALIZER;
+
 static bool is_selection_allowed(const char *software_set, char *running_mode,
 				 struct dict const *acceptedlist)
 {
@@ -87,9 +100,9 @@ static bool is_selection_allowed(const char *software_set, char *running_mode,
 
 	if (allowed) {
 		INFO("Accepted selection %s,%s", software_set, running_mode);
-	}else 
+	}else
 		ERROR("Selection %s,%s is not allowed, rejected !",
-		      software_set, running_mode); 
+		      software_set, running_mode);
 	return allowed;
 }
 
@@ -239,6 +252,112 @@ static void unlink_socket(void)
 	unlink(get_ctrl_socket());
 }
 
+static void send_subprocess_reply(
+		const struct subprocess_msg_elem *const subprocess_msg)
+{
+	if (write(subprocess_msg->client, &subprocess_msg->message,
+			sizeof(subprocess_msg->message)) < 0)
+		ERROR("Error write on socket ctrl");
+}
+
+static void handle_subprocess_ipc(struct subprocess_msg_elem *subprocess_msg)
+{
+	ipc_message *msg = &subprocess_msg->message;
+	int pipe = pctl_getfd_from_type(msg->data.procmsg.source);
+	if (pipe < 0) {
+		ERROR("Cannot find channel for requested process");
+		msg->type = NACK;
+
+		return;
+	}
+
+	TRACE("Received Message for %s",
+		pctl_getname_from_type(msg->data.procmsg.source));
+	if (fcntl(pipe, F_GETFL) < 0 && errno == EBADF) {
+		ERROR("Pipe not available or closed: %d", pipe);
+		msg->type = NACK;
+
+		return;
+	}
+
+	/*
+	 * Cleanup the queue to be sure there are not
+	 * outstanding messages
+	 */
+	empty_pipe(pipe);
+
+	int ret = write(pipe, msg, sizeof(*msg));
+	if (ret != sizeof(*msg)) {
+		ERROR("Writing to pipe failed !");
+		msg->type = NACK;
+
+		return;
+	}
+
+	/*
+	 * Do not block forever for an answer
+	 * This would block the whole thread
+	 * If a message requires more time,
+	 * the destination process should sent an
+	 * answer back explaining this in the payload
+	 */
+	fd_set pipefds;
+	FD_ZERO(&pipefds);
+	FD_SET(pipe, &pipefds);
+
+	struct timeval tv;
+	tv.tv_usec = 0;
+	if (!msg->data.procmsg.timeout)
+		tv.tv_sec = DEFAULT_INTERNAL_TIMEOUT;
+	else
+		tv.tv_sec = msg->data.procmsg.timeout;
+	ret = select(pipe + 1, &pipefds, NULL, NULL, &tv);
+
+	/*
+	 * If there is an error or timeout,
+	 * send a NACK back
+	 */
+	if (ret <= 0 || !FD_ISSET(pipe, &pipefds)) {
+		msg->type = NACK;
+
+		return;
+	}
+
+	ret = read(pipe, msg, sizeof(*msg));
+	if (ret != sizeof(*msg)) {
+		ERROR("Reading from pipe failed !");
+		msg->type = NACK;
+	}
+}
+
+static void *subprocess_thread (void *data)
+{
+	(void)data;
+	thread_ready();
+	pthread_mutex_lock(&subprocess_msg_lock);
+
+	while(1) {
+		while(!SIMPLEQ_EMPTY(&subprocess_messages)) {
+			struct subprocess_msg_elem *subprocess_msg;
+			subprocess_msg = SIMPLEQ_FIRST(&subprocess_messages);
+			SIMPLEQ_REMOVE_HEAD(&subprocess_messages, next);
+
+			pthread_mutex_unlock(&subprocess_msg_lock);
+
+			handle_subprocess_ipc(subprocess_msg);
+			send_subprocess_reply(subprocess_msg);
+			close(subprocess_msg->client);
+
+			free(subprocess_msg);
+			pthread_mutex_lock(&subprocess_msg_lock);
+		}
+
+		pthread_cond_wait(&subprocess_wkup, &subprocess_msg_lock);
+	}
+
+	return NULL;
+}
+
 void *network_thread (void *data)
 {
 	struct installer *instp = (struct installer *)data;
@@ -249,10 +368,9 @@ void *network_thread (void *data)
 	int nread;
 	struct msg_elem *notification;
 	int ret;
-	int pipe;
-	fd_set pipefds;
-	struct timeval tv;
 	update_state_t value;
+	struct subprocess_msg_elem *subprocess_msg;
+	bool should_close_socket;
 
 	if (!instp) {
 		TRACE("Fatal error: Network thread aborting...");
@@ -260,7 +378,10 @@ void *network_thread (void *data)
 	}
 
 	SIMPLEQ_INIT(&notifymsgs);
+	SIMPLEQ_INIT(&subprocess_messages);
 	register_notifier(network_notifier);
+
+	subprocess_ipc_handler_thread_id = start_thread(subprocess_thread, NULL);
 
 	/* Initialize and bind to UDS */
 	ctrllisten = listener_create(get_ctrl_socket(), SOCK_STREAM);
@@ -274,6 +395,7 @@ void *network_thread (void *data)
 			  get_ctrl_socket());
 	}
 
+	thread_ready();
 	do {
 		clilen = sizeof(cliaddr);
 		if ( (ctrlconnfd = accept(ctrllisten, (struct sockaddr *) &cliaddr, &clilen)) < 0) {
@@ -287,7 +409,8 @@ void *network_thread (void *data)
 		nread = read(ctrlconnfd, (void *)&msg, sizeof(msg));
 
 		if (nread != sizeof(msg)) {
-			TRACE("IPC message too short: fragmentation not supported");
+			TRACE("IPC message too short: fragmentation not supported (read %d bytes)",
+				nread);
 			close(ctrlconnfd);
 			continue;
 		}
@@ -295,6 +418,7 @@ void *network_thread (void *data)
 		TRACE("request header: magic[0x%08X] type[0x%08X]", msg.magic, msg.type);
 #endif
 
+		should_close_socket = true;
 		pthread_mutex_lock(&stream_mutex);
 		if (msg.magic == IPC_MAGIC)  {
 			switch (msg.type) {
@@ -309,75 +433,27 @@ void *network_thread (void *data)
 				}
 				break;
 			case SWUPDATE_SUBPROCESS:
-				/*
-				 *  this request is not for the installer,
-				 *  but for one of the subprocesses
-				 *  forward the request without checking
-				 *  the payload
-				 */
-
-				pipe = pctl_getfd_from_type(msg.data.procmsg.source);
-				if (pipe < 0) {
-					ERROR("Cannot find channel for requested process");
-					msg.type = NACK;
-					break;
-				}
-				TRACE("Received Message for %s",
-					pctl_getname_from_type(msg.data.procmsg.source));
-				if (fcntl(pipe, F_GETFL) < 0 && errno == EBADF) {
-					ERROR("Pipe not available or closed: %d", pipe);
+				subprocess_msg = (struct subprocess_msg_elem*)malloc(
+						sizeof(struct subprocess_msg_elem));
+				if (subprocess_msg == NULL) {
+					ERROR("Cannot handle subprocess IPC because of OOM.");
 					msg.type = NACK;
 					break;
 				}
 
+				should_close_socket = false;
+				subprocess_msg->client = ctrlconnfd;
+				subprocess_msg->message = msg;
+
+				pthread_mutex_lock(&subprocess_msg_lock);
+				SIMPLEQ_INSERT_TAIL(&subprocess_messages, subprocess_msg, next);
+				pthread_cond_signal(&subprocess_wkup);
+				pthread_mutex_unlock(&subprocess_msg_lock);
 				/*
-				 * Cleanup the queue to be sure there are not
-				 * outstanding messages
-				 */
-				empty_pipe(pipe);
-
-				ret = write(pipe, &msg, sizeof(msg));
-				if (ret != sizeof(msg)) {
-					ERROR("Writing to pipe failed !");
-					msg.type = NACK;
-					break;
-				}
-
-				/*
-				 * Do not block forever for an answer
-				 * This would block the whole thread
-				 * If a message requires more time,
-				 * the destination process should sent an
-				 * answer back explaining this in the payload
-				 */
-				FD_ZERO(&pipefds);
-				FD_SET(pipe, &pipefds);
-				tv.tv_usec = 0;
-				if (!msg.data.procmsg.timeout)
-					tv.tv_sec = DEFAULT_INTERNAL_TIMEOUT;
-				else
-					tv.tv_sec = msg.data.procmsg.timeout;
-				ret = select(pipe + 1, &pipefds, NULL, NULL, &tv);
-
-				/*
-				 * If there is an error or timeout,
-				 * send a NACK back
-				 */
-				if (ret <= 0 || !FD_ISSET(pipe, &pipefds)) {
-					msg.type = NACK;
-					break;
-				}
-
-				ret = read(pipe, &msg, sizeof(msg));
-				if (ret != sizeof(msg)) {
-					ERROR("Reading from pipe failed !");
-					msg.type = NACK;
-					break;
-				}
-
-				/*
-				 * ACK/NACK was inserted by the called SUBPROCESS
-				 * It should not be touched here
+				 * ACK/NACK will be inserted by the called SUBPROCESS
+				 * It should not be touched here.
+				 * We leave the type as is and delegate the socket to a
+				 * dedicated processing thread.
 				 */
 
 				break;
@@ -393,6 +469,7 @@ void *network_thread (void *data)
 						 * Prepare answer
 						 */
 						msg.type = ACK;
+						should_close_socket = false;
 
 						/* Drop all old notification from last run */
 						cleanum_msg_list();
@@ -408,7 +485,7 @@ void *network_thread (void *data)
 				}
 				break;
 			case GET_STATUS:
-				msg.type = GET_STATUS;
+				msg.type = ACK;
 				memset(msg.data.msg, 0, sizeof(msg.data.msg));
 				msg.data.status.current = instp->status;
 				msg.data.status.last_result = instp->last_install;
@@ -423,7 +500,7 @@ void *network_thread (void *data)
 					strncpy(msg.data.status.desc, notification->msg,
 						sizeof(msg.data.status.desc) - 1);
 #ifdef DEBUG_IPC
-					printf("GET STATUS: %s\n", msg.data.status.desc);
+					DEBUG("GET STATUS: %s\n", msg.data.status.desc);
 #endif
 					msg.data.status.current = notification->status;
 					msg.data.status.error = notification->error;
@@ -438,12 +515,22 @@ void *network_thread (void *data)
 #endif
 					msg.type = NACK;
 				break;
+			case SET_VERSIONS_RANGE:
+				msg.type = ACK;
+				set_version_range(msg.data.versions.minimum_version,
+						  msg.data.versions.maximum_version,
+						  msg.data.versions.current_version);
+				break;
 			case SET_UPDATE_STATE:
 				value = *(update_state_t *)msg.data.msg;
 				msg.type = (is_valid_state(value) &&
-					    save_state((char *)STATE_KEY, value) == SERVER_OK)
+					    save_state(value) == SERVER_OK)
 					       ? ACK
 					       : NACK;
+				break;
+			case GET_UPDATE_STATE:
+				msg.data.msg[0] = get_state();
+				msg.type = ACK;
 				break;
 			default:
 				msg.type = NACK;
@@ -453,12 +540,15 @@ void *network_thread (void *data)
 			msg.type = NACK;
 			sprintf(msg.data.msg, "Wrong request: aborting");
 		}
-		ret = write(ctrlconnfd, &msg, sizeof(msg));
-		if (ret < 0)
-			printf("Error write on socket ctrl");
 
-		if (msg.type != ACK)
-			close(ctrlconnfd);
+		if (msg.type == ACK || msg.type == NACK) {
+			ret = write(ctrlconnfd, &msg, sizeof(msg));
+			if (ret < 0)
+				ERROR("Error write on socket ctrl");
+
+			if (should_close_socket == true)
+				close(ctrlconnfd);
+		}
 		pthread_mutex_unlock(&stream_mutex);
 	} while (1);
 	return (void *)0;

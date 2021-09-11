@@ -2,7 +2,7 @@
  * (C) Copyright 2015
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdlib.h>
@@ -54,7 +54,9 @@ static RECOVERY_STATUS download_from_url(channel_data_t* channel_data)
 	if (chanresult != CHANNEL_OK) {
 		result = FAILURE;
 	}
-	ipc_wait_for_complete(NULL);
+	if (ipc_wait_for_complete(NULL) != SUCCESS) {
+		result = FAILURE;
+	}
 	channel->close(channel);
 	free(channel);
 	return result;
@@ -108,7 +110,12 @@ static channel_data_t channel_options = {
 int start_download(const char *fname, int argc, char *argv[])
 {
 	if (fname) {
-		read_module_settings(fname, "download", download_settings, &channel_options);
+		swupdate_cfg_handle handle;
+		swupdate_cfg_init(&handle);
+		if (swupdate_cfg_read_file(&handle, fname) == 0) {
+			read_module_settings(&handle, "download", download_settings, &channel_options);
+		}
+		swupdate_cfg_destroy(&handle);
 	}
 
 	/* reset to optind=1 to parse download's argument vector */

@@ -3,14 +3,20 @@
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  * 	on behalf of ifm electronic GmbH
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#ifdef __FreeBSD__
+#include <sys/disk.h>
+// the ioctls are almost identical except for the name, just alias it
+#define BLKGETSIZE64 DIOCGMEDIASIZE
+#else
 #include <linux/fs.h>
+#endif
 
 
 #include <unistd.h>
@@ -38,6 +44,7 @@ void raw_copyimage_handler(void);
  */
 static int blkprotect(struct img_type *img, bool on)
 {
+	char abs_path[PATH_MAX];
 	const char c_sys_path[] = "/sys/class/block/%s/force_ro";
 	const char c_unprot_char = '0';
 	const char c_prot_char = '1';
@@ -53,7 +60,7 @@ static int blkprotect(struct img_type *img, bool on)
 		return ret;
 	}
 
-	if (lstat(img->device, &sb) == -1) {
+	if (stat(img->device, &sb) == -1) {
 		TRACE("stat for device %s failed: %s", img->device, strerror(errno));
 		return ret;
 	}
@@ -61,7 +68,13 @@ static int blkprotect(struct img_type *img, bool on)
 		return ret;
 	}
 
-	ret_int = asprintf(&sysfs_path, c_sys_path, img->device + 5);  // remove "/dev/" from device path
+	/* If given, traverse symlink and convert to absolute path */
+	if (realpath(img->device, abs_path) == NULL) {
+		ret = -errno;
+		goto blkprotect_out;
+	}
+
+	ret_int = asprintf(&sysfs_path, c_sys_path, abs_path + 5);  /* remove "/dev/" from device path */
 	if(ret_int < 0) {
 		ret = -ENOMEM;
 		goto blkprotect_out;
@@ -150,7 +163,7 @@ static int copy_raw_image(struct img_type *img,
 	proplist = dict_get_list(&img->properties, "copyfrom");
 
 	if (!proplist || !(entry = LIST_FIRST(proplist))) {
-		ERROR("MIssing source device, no copyfrom property");
+		ERROR("Missing source device, no copyfrom property");
 		return -EINVAL;
 	}
 	fdin = open(entry->value, O_RDONLY);
@@ -181,7 +194,7 @@ static int copy_raw_image(struct img_type *img,
 			0, /* no compressed */
 			&checksum,
 			0, /* no sha256 */
-			0, /* no encrypted */
+			false, /* no encrypted */
 			NULL, /* no IVT */
 			NULL);
 
@@ -240,6 +253,10 @@ static int install_raw_file(struct img_type *img,
 	}
 
 	fdout = openfileoutput(path);
+	if (!img_check_free_space(img, fdout)) {
+		return -ENOSPC;
+	}
+
 	ret = copyimage(&fdout, img, NULL);
 	if (ret< 0) {
 		ERROR("Error copying extracted file");

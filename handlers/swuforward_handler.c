@@ -2,7 +2,7 @@
  * (C) Copyright 2017
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 /*
@@ -163,9 +163,13 @@ static void *curl_transfer_thread(void *p)
 
 	 /* Fill in the filename field */
 	field = curl_mime_addpart(conn->form);
-	curl_mime_name(field, "swupdate-package");
-	curl_mime_type(field, "application/octet-stream");
-	curl_mime_filename(field, "swupdate.swu");
+	if ((curl_mime_name(field, "swupdate-package") != CURLE_OK) ||
+	    (curl_mime_type(field, "application/octet-stream") != CURLE_OK) ||
+	    (curl_mime_filename(field, "swupdate.swu") != CURLE_OK)) {
+		ERROR("curl set MIME was not successful");
+		conn->exitval = FAILURE;
+		goto curl_thread_exit;
+	}
 
 	if ((curl_easy_setopt(conn->curl_handle, CURLOPT_POST, 1L) != CURLE_OK) ||
 	   (curl_mime_data_cb(field, conn->total_bytes, curl_read_data,
@@ -370,12 +374,14 @@ static int install_remote_swu(struct img_type *img,
 
 	if (initialize_backchannel(&priv)) {
 		ERROR("Cannot initialize back connection");
+		ret = FAILURE;
 		goto handler_exit;
 	}
 
 	ret = copyimage(&priv, img, swu_forward_data);
 	if (ret) {
 		ERROR("Transferring SWU image was not successful");
+		ret = FAILURE;
 		goto handler_exit;
 	}
 

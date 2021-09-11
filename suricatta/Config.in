@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2016 Christian Storm <christian.storm@tngtech.com>
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
 menuconfig SURICATTA
 	bool "Suricatta"
 	depends on HAVE_LIBCURL
@@ -51,7 +55,9 @@ comment "hawkBit support needs json-c"
 
 config SURICATTA_GENERAL
 	bool "General HTTP support"
+	depends on HAVE_JSON_C
 	select CHANNEL_CURL
+	select JSON
 	help
 	  Support for Simple HTTP coded server
 	  The server uses HTTP return codes to detect if an update

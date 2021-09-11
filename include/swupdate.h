@@ -2,7 +2,7 @@
  * (C) Copyright 2012-2014
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #ifndef _SWUPDATE_H
@@ -35,11 +35,11 @@ typedef enum {
  * in the .swu image is required for the
  * device, or can be skipped
  */
-enum {
+typedef enum {
 	COPY_FILE,
 	SKIP_FILE,
 	INSTALL_FROM_STREAM
-};
+} swupdate_file_t;
 
 typedef enum {
 	SKIP_NONE=0,
@@ -81,7 +81,7 @@ struct img_type {
 	int provided;
 	int compressed;
 	int preserve_attributes; /* whether to preserve attributes in archives */
-	int is_encrypted;
+	bool is_encrypted;
 	char ivt_ascii[33];
 	int install_directly;
 	int is_script;
@@ -122,26 +122,10 @@ enum {
 	SCRIPT_POSTINSTALL
 };
 
-struct swupdate_global_cfg {
-	int verbose;
-	char mtdblacklist[SWUPDATE_GENERAL_STRING_SIZE];
-	int loglevel;
-	int syslog_enabled;
-	int dry_run;
-	int no_downgrading;
-	int no_reinstalling;
-	int no_transaction_marker;
-	char publickeyfname[SWUPDATE_GENERAL_STRING_SIZE];
-	char aeskeyfname[SWUPDATE_GENERAL_STRING_SIZE];
-	char postupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
-	char preupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
-	char default_software_set[SWUPDATE_GENERAL_STRING_SIZE];
-	char default_running_mode[SWUPDATE_GENERAL_STRING_SIZE];
-	int  default_dry_run;
-	char minimum_version[SWUPDATE_GENERAL_STRING_SIZE];
-	char current_version[SWUPDATE_GENERAL_STRING_SIZE];
-	int cert_purpose;
-	char forced_signer_name[SWUPDATE_GENERAL_STRING_SIZE];
+struct swupdate_parms {
+	bool dry_run;
+	char software_set[SWUPDATE_GENERAL_STRING_SIZE];
+	char running_mode[SWUPDATE_GENERAL_STRING_SIZE];
 };
 
 struct swupdate_cfg {
@@ -149,9 +133,26 @@ struct swupdate_cfg {
 	char description[SWUPDATE_UPDATE_DESCRIPTION_STRING_SIZE];
 	char version[SWUPDATE_GENERAL_STRING_SIZE];
 	bool bootloader_transaction_marker;
-	char software_set[SWUPDATE_GENERAL_STRING_SIZE];
-	char running_mode[SWUPDATE_GENERAL_STRING_SIZE];
+	bool bootloader_state_marker;
 	char output[SWUPDATE_GENERAL_STRING_SIZE];
+	char publickeyfname[SWUPDATE_GENERAL_STRING_SIZE];
+	char aeskeyfname[SWUPDATE_GENERAL_STRING_SIZE];
+	char postupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
+	char preupdatecmd[SWUPDATE_GENERAL_STRING_SIZE];
+	char minimum_version[SWUPDATE_GENERAL_STRING_SIZE];
+	char maximum_version[SWUPDATE_GENERAL_STRING_SIZE];
+	char current_version[SWUPDATE_GENERAL_STRING_SIZE];
+	char mtdblacklist[SWUPDATE_GENERAL_STRING_SIZE];
+	char forced_signer_name[SWUPDATE_GENERAL_STRING_SIZE];
+	bool syslog_enabled;
+	bool no_downgrading;
+	bool no_reinstalling;
+	bool no_transaction_marker;
+	bool no_state_marker;
+	bool check_max_version;
+	int verbose;
+	int loglevel;
+	int cert_purpose;
 	struct hw_type hw;
 	struct hwlist hardware;
 	struct swver installed_sw_list;
@@ -162,7 +163,7 @@ struct swupdate_cfg {
 	struct dict accepted_set;
 	struct proclist extprocs;
 	void *dgst;	/* Structure for signed images */
-	struct swupdate_global_cfg globals;
+	struct swupdate_parms parms;
 	const char *embscript;
 };
 

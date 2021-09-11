@@ -2,7 +2,7 @@
  * (C) Copyright 2019
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -18,6 +18,7 @@
 #include "swupdate.h"
 #include "handler.h"
 #include "util.h"
+#include "fs_interface.h"
 
 void diskpart_handler(void);
 
@@ -29,6 +30,27 @@ void diskpart_handler(void);
 /* Linux native partition type */
  #define GPT_DEFAULT_ENTRY_TYPE "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
 
+#if defined (CONFIG_EXT_FILESYSTEM)
+static inline int ext_mkfs_short(const char *device_name, const char *fstype) {
+	return ext_mkfs(device_name,fstype, 0, NULL);
+}
+#endif
+
+struct supported_filesystems {
+	const char *fstype;
+	int	(*mkfs) (const char *device_name, const char *fstype);
+};
+
+static struct supported_filesystems fs[] = {
+#if defined(CONFIG_FAT_FILESYSTEM)
+	{"vfat", fat_mkfs},
+#endif
+#if defined (CONFIG_EXT_FILESYSTEM)
+	{"ext2", ext_mkfs_short},
+	{"ext3", ext_mkfs_short},
+	{"ext4", ext_mkfs_short},
+#endif
+};
 
 /**
  * Keys for the properties field in sw-description
@@ -37,14 +59,16 @@ enum partfield {
 	PART_SIZE = 0,
 	PART_START,
 	PART_TYPE,
-	PART_NAME
+	PART_NAME,
+	PART_FSTYPE
 };
 
 const char *fields[] = {
 	[PART_SIZE] = "size",
 	[PART_START] = "start",
 	[PART_TYPE] = "type",
-	[PART_NAME] = "name"
+	[PART_NAME] = "name",
+	[PART_FSTYPE] = "fstype"
 };
 
 struct partition_data {
@@ -53,6 +77,7 @@ struct partition_data {
 	size_t start;
 	char type[SWUPDATE_GENERAL_STRING_SIZE];
 	char name[SWUPDATE_GENERAL_STRING_SIZE];
+	char fstype[SWUPDATE_GENERAL_STRING_SIZE];
 	LIST_ENTRY(partition_data) next;
 };
 LIST_HEAD(listparts, partition_data);
@@ -115,7 +140,7 @@ static bool diskpart_partition_cmp(const char *lbtype, struct fdisk_partition *f
 		return true;
 
 	if (firstpa && secondpa && (fdisk_partition_cmp_partno(firstpa, secondpa) ||
-		(!fdisk_partition_start_is_default(firstpa) && !fdisk_partition_start_is_default(secondpa) && 
+		(!fdisk_partition_start_is_default(firstpa) && !fdisk_partition_start_is_default(secondpa) &&
 		fdisk_partition_cmp_start(firstpa, secondpa)) ||
 		(!strcmp(lbtype, "gpt") &&
 			(strcmp(fdisk_parttype_get_string(fdisk_partition_get_type(firstpa)),
@@ -126,11 +151,11 @@ static bool diskpart_partition_cmp(const char *lbtype, struct fdisk_partition *f
 			fdisk_parttype_get_code(fdisk_partition_get_type(firstpa)) !=
 			fdisk_parttype_get_code(fdisk_partition_get_type(secondpa))) ||
 		fdisk_partition_get_size(firstpa) != fdisk_partition_get_size(secondpa))) {
-		TRACE("Partition differ : %s(%lu) <--> %s(%lu)",
+		TRACE("Partition differ : %s(%llu) <--> %s(%llu)",
 			fdisk_partition_get_name (firstpa) ? fdisk_partition_get_name(firstpa) : "",
-			fdisk_partition_get_size(firstpa),
+			(long long unsigned)fdisk_partition_get_size(firstpa),
 			fdisk_partition_get_name(secondpa) ? fdisk_partition_get_name(secondpa) : "",
-			fdisk_partition_get_size(secondpa));
+			(long long unsigned)fdisk_partition_get_size(secondpa));
 		return true;
 	}
 	return false;
@@ -217,7 +242,10 @@ static int diskpart(struct img_type *img,
 						strncpy(part->type, equal, sizeof(part->type));
 						break;
 					case PART_NAME:
-						strncpy(part->name, equal, sizeof(part->name)); 
+						strncpy(part->name, equal, sizeof(part->name));
+						break;
+					case PART_FSTYPE:
+						strncpy(part->fstype, equal, sizeof(part->fstype));
 						break;
 					}
 				}
@@ -303,9 +331,9 @@ static int diskpart(struct img_type *img,
 	 	 * GPT uses strings instead of hex code for partition type
 	 	*/
 		if (fdisk_is_label(cxt, GPT)) {
-			parttype = fdisk_label_get_parttype_from_string(lb, part->type); 
+			parttype = fdisk_label_get_parttype_from_string(lb, part->type);
 			if (!parttype)
-				parttype = fdisk_label_get_parttype_from_string(lb, GPT_DEFAULT_ENTRY_TYPE); 
+				parttype = fdisk_label_get_parttype_from_string(lb, GPT_DEFAULT_ENTRY_TYPE);
 		} else {
 			parttype = fdisk_label_get_parttype_from_code(lb, ustrtoull(part->type, 16));
 		}
@@ -330,7 +358,8 @@ static int diskpart(struct img_type *img,
 		size_t numpartondisk = fdisk_table_get_nents(oldtb);
 
 		if (numpartondisk != i) {
-			TRACE("Number of partitions differs on disk: %lu <--> requested: %lu", numpartondisk, i);
+			TRACE("Number of partitions differs on disk: %lu <--> requested: %lu",
+				(long unsigned int)numpartondisk, i);
 			createtable = true;
 		} else {
 			struct fdisk_partition *pa, *newpa;
@@ -389,12 +418,57 @@ handler_exit:
 		WARN("Error deassign device %s", img->device);
 
 handler_release:
+	fdisk_unref_context(cxt);
+
+	/*
+	 * Kernel rereads the partition table and add just a delay to be sure
+	 * that SWUpdate does not try to access the partitions before the kernel is
+	 * ready
+	 */
+
+	sleep(2);
+
+#ifdef CONFIG_DISKFORMAT
+	/* Create filesystems */
+	if (!ret) {
+		LIST_FOREACH(part, &priv.listparts, next) {
+			int index;
+			/*
+			 * priv.listparts counts partitions starting with 0,
+			 * but fdisk_partname expects the first partition having
+			 * the number 1.
+			 */
+			size_t partno = part->partno + 1;
+
+			if (!strlen(part->fstype))
+				continue;  /* Don't touch partitions without fstype */
+			for (index = 0; index < ARRAY_SIZE(fs); index++) {
+				if (!strcmp(fs[index].fstype, part->fstype))
+					break;
+			}
+			if (index >= ARRAY_SIZE(fs)) {
+				ERROR("partition-%lu %s filesystem type not supported.", partno, part->fstype);
+				ret = -EINVAL;
+				break;
+			}
+
+			char *device = NULL;
+			device = fdisk_partname(img->device, partno);
+			TRACE("Creating %s file system on partition-%lu, device %s", part->fstype, partno, device);
+			ret = fs[index].mkfs(device, part->fstype);
+			free(device);
+			if (ret) {
+				ERROR("creating %s file system failed. %d", part->fstype, ret);
+				break;
+			}
+		}
+	}
+#endif
+
 	LIST_FOREACH_SAFE(part, &priv.listparts, next, tmp) {
 		LIST_REMOVE(part, next);
 		free(part);
 	}
-
-	fdisk_unref_context(cxt);
 
 	return ret;
 }
