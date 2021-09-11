@@ -2,7 +2,7 @@
  * (C) Copyright 2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -51,6 +51,13 @@ int pid = 0;
 
 int sw_sockfd = -1;
 
+/*
+ * This allows waiting for initial threads to be ready before spawning subprocesses
+ */
+static int threads_towait = 0;
+static pthread_mutex_t threads_towait_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t threads_towait_cond = PTHREAD_COND_INITIALIZER;
+
 #if defined(__linux__)
 static void parent_dead_handler(int __attribute__ ((__unused__)) dummy)
 {
@@ -70,11 +77,39 @@ pthread_t start_thread(void *(* start_routine) (void *), void *arg)
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
+	pthread_mutex_lock(&threads_towait_lock);
+	threads_towait++;
+	pthread_mutex_unlock(&threads_towait_lock);
+
 	ret = pthread_create(&id, &attr, start_routine, arg);
 	if (ret) {
 		exit(1);
 	}
 	return id;
+}
+
+/*
+ * Internal threads should signal they are ready if internal subprocesses
+ * can be spawned after them
+ */
+void thread_ready(void)
+{
+	pthread_mutex_lock(&threads_towait_lock);
+	threads_towait--;
+	if (threads_towait == 0)
+		pthread_cond_broadcast(&threads_towait_cond);
+	pthread_mutex_unlock(&threads_towait_lock);
+}
+
+/*
+ * Wait for all threads to have signaled they're ready
+ */
+void wait_threads_ready(void)
+{
+	pthread_mutex_lock(&threads_towait_lock);
+	while (threads_towait != 0)
+		pthread_cond_wait(&threads_towait_cond, &threads_towait_lock);
+	pthread_mutex_unlock(&threads_towait_lock);
 }
 
 /*
@@ -165,19 +200,16 @@ static int spawn_process(struct swupdate_task *task,
 	}
 }
 
-static void start_swupdate_subprocess(sourcetype type,
-			const char *name, const char *cfgfile,
+static void start_swupdate_subprocess(sourcetype type, const char *name,
+			uid_t run_as_userid, gid_t run_as_groupid,
+			const char* cfgfile,
 			int argc, char **argv,
 			swupdate_process start,
 			const char *cmdline)
 {
-	uid_t uid;
-	gid_t gid;
-
-	read_settings_user_id(cfgfile, name, &uid, &gid);
 	procs[nprocs].name = name;
 	procs[nprocs].type = type;
-	if (spawn_process(&procs[nprocs], uid, gid, cfgfile, argc, argv, start, cmdline) < 0) {
+	if (spawn_process(&procs[nprocs], run_as_userid, run_as_groupid, cfgfile, argc, argv, start, cmdline) < 0) {
 		ERROR("Spawning %s failed, exiting process...", name);
 		exit(1);
 	}
@@ -188,19 +220,22 @@ static void start_swupdate_subprocess(sourcetype type,
 
 
 void start_subprocess_from_file(sourcetype type, const char *name,
+			uid_t run_as_userid, gid_t run_as_groupid,
 			const char *cfgfile,
 			int argc, char **argv,
 			const char *cmdline)
 {
-	start_swupdate_subprocess(type, name, cfgfile, argc, argv, NULL, cmdline);
+	start_swupdate_subprocess(type, name, run_as_userid, run_as_groupid, cfgfile, argc, argv, NULL, cmdline);
 }
 
-void start_subprocess(sourcetype type, const char *name, const char *cfgfile,
+void start_subprocess(sourcetype type, const char *name,
+			uid_t run_as_userid, gid_t run_as_groupid,
+			const char *cfgfile,
 			int argc, char **argv,
 			swupdate_process start)
 {
 
-	start_swupdate_subprocess(type, name, cfgfile, argc, argv, start, NULL);
+	start_swupdate_subprocess(type, name, run_as_userid, run_as_groupid, cfgfile, argc, argv, start, NULL);
 }
 
 /*
@@ -264,12 +299,23 @@ int run_system_cmd(const char *cmd)
 	} else {
 		int fds[2];
 		pid_t w;
+		char buf[2][SWUPDATE_GENERAL_STRING_SIZE];
+		int cindex[2] = {0, 0}; /* this is the first free char inside buffer */
+		LOGLEVEL levels[2] = { TRACELEVEL, ERRORLEVEL };
 
 		close(stdoutpipe[PIPE_WRITE]);
 		close(stderrpipe[PIPE_WRITE]);
 
 		fds[0] = stdoutpipe[PIPE_READ];
 		fds[1] = stderrpipe[PIPE_READ];
+
+		/*
+		 * Use buffers (for stdout and stdin) to collect data from
+		 * the cmd. Data can contain multiple lines or just a part
+		 * of a line and must be parsed
+		 */
+		memset(buf[0], 0, SWUPDATE_GENERAL_STRING_SIZE);
+		memset(buf[1], 0, SWUPDATE_GENERAL_STRING_SIZE);
 
 		/*
 		 * Now waits until the child process exits and checks
@@ -281,9 +327,6 @@ int run_system_cmd(const char *cmd)
 			struct timeval tv;
 			fd_set readfds;
 			int n, i;
-			char buf[2][SWUPDATE_GENERAL_STRING_SIZE];
-			char *pbuf;
-			int cindex[2] = {0, 0}; /* this is the first free char inside buffer */
 
 			w = waitpid(process_id, &wstatus, WNOHANG | WUNTRACED | WCONTINUED);
 			if (w == -1) {
@@ -292,14 +335,6 @@ int run_system_cmd(const char *cmd)
 				close(stderrpipe[PIPE_READ]);
 				return -EFAULT;
 			}
-
-			/*
-			 * Use buffers (for stdout and stdin) to collect data from
-			 * the cmd. Data can contain multiple lines or just a part
-			 * of a line and must be parsed
-			 */
-			memset(buf[0], 0, SWUPDATE_GENERAL_STRING_SIZE);
-			memset(buf[1], 0, SWUPDATE_GENERAL_STRING_SIZE);
 
 			tv.tv_sec = 1;
 			tv.tv_usec = 0;
@@ -316,64 +351,34 @@ int run_system_cmd(const char *cmd)
 					break;
 
 				for (i = 0; i < 2 ; i++) {
-					pbuf = buf[i];
-					int c = cindex[i];
+					char *pbuf = buf[i];
+					int *c = &cindex[i];
+					LOGLEVEL level = levels[i];
 
 					if (FD_ISSET(fds[i], &readfds)) {
-						int last;
-
-						n = read(fds[i], &pbuf[c], SWUPDATE_GENERAL_STRING_SIZE - c);
+						n = read_lines_notify(fds[i], pbuf, SWUPDATE_GENERAL_STRING_SIZE,
+								      c, level);
 						if (n < 0)
 							continue;
-						n += c;	/* add previous data, if any */
 						n1 += n;
-						if (n > 0) {
-
-							/* check if just a part of a line was sent. In that
-							 * case, search for the last line and then copy the rest
-							 * to the begin of the buffer for next read
-							 */
-							last = n - 1;
-							while (last > 0 && pbuf[last] != '\0' && pbuf[last] != '\n')
-									last--;
-							pbuf[last] = '\0';
-							/*
-							 * compute the truncate line that should be
-							 * parsed next time when the rest is received
-							 */
-							int left = n - 1 - last;
-							char **lines = string_split(pbuf, '\n');
-							int nlines = count_string_array((const char **)lines);
-
-							if (last < SWUPDATE_GENERAL_STRING_SIZE - 1) {
-								last++;
-								memcpy(pbuf, &pbuf[last], left);
-								if (last + left < SWUPDATE_GENERAL_STRING_SIZE) {
-									memset(&pbuf[left], 0, SWUPDATE_GENERAL_STRING_SIZE - left);
-								}
-								cindex[i] = left;
-							} else { /* no need to copy, reuse all buffer */
-								memset(pbuf, 0, SWUPDATE_GENERAL_STRING_SIZE);
-								cindex[i] = 0;
-							}
-
-							for (unsigned int index = 0; index < nlines; index++) {
-								switch (i) {
-								case 0:
-									TRACE("%s", lines[index]);
-									break;
-								case 1:
-									ERROR("%s", lines[index]);
-									break;
-								}
-							}
-
-							free_string_array(lines);
-						}
 					}
 				}
 			} while (ret > 0 && n1 > 0);
 		} while (w != process_id);
+
+		/* print any unfinished line */
+		for (int i = 0; i < 2; i++) {
+			if (cindex[i]) {
+				switch(i) {
+				case 0:
+					TRACE("%s", buf[i]);
+					break;
+				case 1:
+					ERROR("%s", buf[i]);
+					break;
+				}
+			}
+		}
 
 		close(stdoutpipe[PIPE_READ]);
 		close(stderrpipe[PIPE_READ]);

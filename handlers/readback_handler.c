@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2020 Bosch Sicherheitssysteme GmbH
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -10,7 +10,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#ifdef __FreeBSD__
+#include <sys/disk.h>
+// the ioctls are almost identical except for the name, just alias it
+#define BLKGETSIZE64 DIOCGMEDIASIZE
+#else
 #include <linux/fs.h>
+#endif
 
 #include "swupdate.h"
 #include "handler.h"
@@ -106,7 +112,7 @@ static int readback_postinst(struct img_type *img)
 			0,     /* no compressed */
 			NULL,  /* no checksum */
 			hash,
-			0,     /* no encrypted */
+			false,     /* no encrypted */
 			NULL,     /* no IVT */
 			NULL); /* no callback */
 	if (status == 0) {

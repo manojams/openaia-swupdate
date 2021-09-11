@@ -2,7 +2,7 @@
  * (C) Copyright 2015-2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <limits.h>
@@ -32,6 +32,10 @@
 
 #if defined(CONFIG_LIBCONFIG) || defined(CONFIG_JSON)
 
+typedef int (*parse_element)(parsertype p,
+		void *cfg, void *start, const char **nodes,
+		struct swupdate_cfg *swcfg, lua_State *L);
+
 static bool path_append(const char **nodes, const char *field)
 {
 	unsigned int count = 0;
@@ -47,12 +51,11 @@ static bool path_append(const char **nodes, const char *field)
 	return true;
 }
 
-static void *find_node(parsertype p, void *root, const char *field,
-			struct swupdate_cfg *swcfg)
+static void *find_node_and_path(parsertype p, void *root, const char *field,
+			struct swupdate_cfg *swcfg, const char **nodes)
 {
-
 	struct hw_type *hardware;
-	const char **nodes;
+	void *node = NULL;
 	int i;
 
 	if (!field)
@@ -60,27 +63,25 @@ static void *find_node(parsertype p, void *root, const char *field,
 
 	hardware = &swcfg->hw;
 
-	nodes = (const char **)calloc(MAX_PARSED_NODES, sizeof(*nodes));
-
 	for (i = 0; i < 4; i++) {
 		nodes[0] = NULL;
 		switch(i) {
 		case 0:
-	        	if (strlen(swcfg->running_mode) && strlen(swcfg->software_set) &&
+			if (strlen(swcfg->parms.running_mode) && strlen(swcfg->parms.software_set) &&
 		        		strlen(hardware->boardname)) {
 				nodes[0] = NODEROOT;
 				nodes[1] = hardware->boardname;
-				nodes[2] = swcfg->software_set;
-				nodes[3] = swcfg->running_mode;
+				nodes[2] = swcfg->parms.software_set;
+				nodes[3] = swcfg->parms.running_mode;
 				nodes[4] = NULL;
 			}
 			break;
 		case 1:
 			/* try with software set and mode */
-			if (strlen(swcfg->running_mode) && strlen(swcfg->software_set)) {
+			if (strlen(swcfg->parms.running_mode) && strlen(swcfg->parms.software_set)) {
 				nodes[0] = NODEROOT;
-				nodes[1] = swcfg->software_set;
-				nodes[2] = swcfg->running_mode;
+				nodes[1] = swcfg->parms.software_set;
+				nodes[2] = swcfg->parms.running_mode;
 				nodes[3] = NULL;
 			}
 			break;
@@ -113,21 +114,68 @@ static void *find_node(parsertype p, void *root, const char *field,
 		 * to search for element
 		 */
 		if (find_root(p, root, nodes)) {
-			void *node = NULL;
 			if (!path_append(nodes, field))
 				return NULL;
 			node = find_root(p, root, nodes);
 
 			if (node) {
-				free(nodes);
 				return node;
 			}
 		}
 	}
 
+	return NULL;
+}
+
+static int parser_follow_link(parsertype p, void *cfg, void *elem,
+				const char **nodes, struct swupdate_cfg *swcfg,
+				parse_element fn, lua_State *L)
+{
+	const char *ref;
+	void *link;
+	char **tmp = NULL;	/* to store temporary link path */
+	const char **linknodes;
+	int result = 0;
+
+	ref = get_field_string(p, elem, "ref");
+	linknodes = (const char **)calloc(MAX_PARSED_NODES, sizeof(*nodes));
+	if (!linknodes)
+		return -ENOMEM;
+	TRACE("Link found, following %s", ref);
+	for (int j = 0; j < count_string_array(nodes); j++) {
+		linknodes[j] = nodes[j];
+	}
+	if (!set_find_path(linknodes, ref, tmp)) {
+		free(linknodes);
+		return -1;
+	}
+
+	link = find_root(p, cfg, linknodes);
+	if (link) {
+		result = fn(p, cfg, link, linknodes, swcfg, L);
+	}
+	free_string_array(tmp);
+	free(linknodes);
+	return result;
+}
+
+static void *find_node(parsertype p, void *root, const char *field,
+			struct swupdate_cfg *swcfg)
+{
+	const char **nodes;
+	void *node = NULL;
+
+	if (!field)
+		return NULL;
+
+	nodes = (const char **)calloc(MAX_PARSED_NODES, sizeof(*nodes));
+	if (!nodes)
+		return NULL;
+
+	node = find_node_and_path(p, root, field, swcfg, nodes);
 	free(nodes);
 
-	return NULL;
+	return node;
 }
 
 static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
@@ -148,7 +196,18 @@ static bool get_common_fields(parsertype p, void *cfg, struct swupdate_cfg *swcf
 		TRACE("Description %s", swcfg->description);
 	}
 
-	if(swcfg->globals.no_transaction_marker) {
+	if(swcfg->no_state_marker) {
+		swcfg->bootloader_state_marker = false;
+	} else {
+		swcfg->bootloader_state_marker = true;
+		if((setting = find_node(p, cfg, "bootloader_state_marker", swcfg)) != NULL) {
+			get_field(p, setting, NULL, &swcfg->bootloader_state_marker);
+			TRACE("Setting bootloader state marker: %s",
+			      swcfg->bootloader_state_marker == true ? "true" : "false");
+		}
+	}
+
+	if(swcfg->no_transaction_marker) {
 		swcfg->bootloader_transaction_marker = false;
 	} else {
 		swcfg->bootloader_transaction_marker = true;
@@ -298,8 +357,8 @@ static int is_image_higher(struct swver *sw_ver_list,
          * or equal.
          */
         if (!strncmp(img->id.name, swver->name, sizeof(img->id.name)) &&
-            (compare_versions(proposed_version, current_version) < 0)) {
-            TRACE("%s(%s) has a higher version installed, skipping...",
+            (compare_versions(proposed_version, current_version) <= 0)) {
+            TRACE("%s(%s) has a higher or same version installed, skipping...",
                   img->id.name,
                   img->id.version);
 
@@ -383,13 +442,11 @@ static int parse_common_attributes(parsertype p, void *elem, struct img_type *im
 	return 0;
 }
 
-static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
+static int _parse_partitions(parsertype p, void *cfg, void *setting, const char **nodes, struct swupdate_cfg *swcfg, lua_State *L)
 {
-	void *setting, *elem;
-	int count, i;
+	void *elem;
+	int count, i, skip, err;
 	struct img_type *partition;
-
-	setting = find_node(p, cfg, "partitions", swcfg);
 
 	if (setting == NULL)
 		return 0;
@@ -404,6 +461,13 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 
 		if (!elem)
 			continue;
+
+		if (exist_field_string(p, elem, "ref")) {
+			err = parser_follow_link(p, cfg, elem, nodes, swcfg, _parse_partitions, L);
+			if (err)
+				return err;
+			continue;
+		}
 
 		partition = (struct img_type *)calloc(1, sizeof(struct img_type));
 		if (!partition) {
@@ -433,6 +497,11 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 
 		add_properties(p, elem, partition);
 
+		skip = run_embscript(p, elem, partition, L, swcfg->embscript);
+		if (skip < 0) {
+			free_image(partition);
+			return -1;
+		}
 		TRACE("Partition: %s new size %lld bytes",
 			!strcmp(partition->type, "ubipartition") ? partition->volname : partition->device,
 			partition->partsize);
@@ -443,13 +512,24 @@ static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 	return 0;
 }
 
-static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
+static int parse_partitions(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
 {
-	void *setting, *elem;
-	int count, i, skip;
-	struct img_type *script;
+	void *setting;
+	const char *nodes[MAX_PARSED_NODES];
 
-	setting = find_node(p, cfg, "scripts", swcfg);
+	setting = find_node_and_path(p, cfg, "partitions", swcfg, nodes);
+
+	if (!setting)
+		return 0;
+
+	return _parse_partitions(p, cfg, setting, nodes, swcfg, L);
+}
+
+static int _parse_scripts(parsertype p, void *cfg, void *setting, const char **nodes, struct swupdate_cfg *swcfg, lua_State *L)
+{
+	void *elem;
+	int count, i, skip, err;
+	struct img_type *script;
 
 	if (setting == NULL)
 		return 0;
@@ -465,6 +545,12 @@ static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lu
 		if (!elem)
 			continue;
 
+		if (exist_field_string(p, elem, "ref")) {
+			err = parser_follow_link(p, cfg, elem, nodes, swcfg, _parse_scripts, L);
+			if (err)
+				return err;
+			continue;
+		}
 		/*
 		 * Check for filename field
 		 */
@@ -510,27 +596,44 @@ static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lu
 	return 0;
 }
 
-static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
+static int parse_scripts(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
 {
-	void *setting, *elem;
-	int count, i, skip;
+	void *setting;
+	const char *nodes[MAX_PARSED_NODES];
+
+	setting = find_node_and_path(p, cfg, "scripts", swcfg, nodes);
+
+	if (!setting)
+		return 0;
+
+	return _parse_scripts(p, cfg, setting, nodes, swcfg, L);
+}
+
+static int _parse_bootloader(parsertype p, void *cfg, void *setting, const char **nodes, struct swupdate_cfg *swcfg, lua_State *L)
+{
+	void *elem;
+	int count, i, skip, err;
 	struct img_type *script;
 	struct img_type dummy;
 
-	setting = find_node(p, cfg, "uboot", swcfg);
-
 	if (setting == NULL) {
-		setting = find_node(p, cfg, "bootenv", swcfg);
-		if (setting == NULL)
-			return 0;
+		return 0;
 	}
 
 	count = get_array_length(p, setting);
+
 	for(i = (count - 1); i >= 0; --i) {
 		elem = get_elem_from_idx(p, setting, i);
 
 		if (!elem)
 			continue;
+
+		if (exist_field_string(p, elem, "ref")) {
+			err = parser_follow_link(p, cfg, elem, nodes, swcfg, _parse_bootloader, L);
+			if (err)
+				return err;
+			continue;
+		}
 
 		memset(&dummy, 0, sizeof(dummy));
 
@@ -594,13 +697,27 @@ static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg,
 	return 0;
 }
 
-static int parse_images(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
+static int parse_bootloader(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
 {
-	void *setting, *elem;
-	int count, i, skip;
-	struct img_type *image;
+	void *setting;
+	const char *nodes[MAX_PARSED_NODES];
 
-	setting = find_node(p, cfg, "images", swcfg);
+	setting = find_node_and_path(p, cfg, "bootenv", swcfg, nodes);
+
+	if (!setting) {
+		setting = find_node_and_path(p, cfg, "uboot", swcfg, nodes);
+	}
+	if (!setting)
+		return 0;
+
+	return _parse_bootloader(p, cfg, setting, nodes, swcfg, L);
+}
+
+static int _parse_images(parsertype p, void *cfg, void *setting, const char **nodes, struct swupdate_cfg *swcfg, lua_State *L)
+{
+	void *elem;
+	int count, i, skip, err;
+	struct img_type *image;
 
 	if (setting == NULL)
 		return 0;
@@ -613,6 +730,12 @@ static int parse_images(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua
 		if (!elem)
 			continue;
 
+		if (exist_field_string(p, elem, "ref")) {
+			err = parser_follow_link(p, cfg, elem, nodes, swcfg, _parse_images, L);
+			if (err)
+				return err;
+			continue;
+		}
 		/*
 		 * Check for mandatory field
 		 */
@@ -677,13 +800,24 @@ static int parse_images(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua
 	return 0;
 }
 
-static int parse_files(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
+static int parse_images(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
 {
-	void *setting, *elem;
-	int count, i, skip;
-	struct img_type *file;
+	void *setting;
+	const char *nodes[MAX_PARSED_NODES];
 
-	setting = find_node(p, cfg, "files", swcfg);
+	setting = find_node_and_path(p, cfg, "images", swcfg, nodes);
+
+	if (!setting)
+		return 0;
+
+	return _parse_images(p, cfg, setting, nodes, swcfg, L);
+}
+
+static int _parse_files(parsertype p, void *cfg, void *setting, const char **nodes, struct swupdate_cfg *swcfg, lua_State *L)
+{
+	void *elem;
+	int count, i, skip, err;
+	struct img_type *file;
 
 	if (setting == NULL)
 		return 0;
@@ -696,6 +830,12 @@ static int parse_files(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_
 		if (!elem)
 			continue;
 
+		if (exist_field_string(p, elem, "ref")) {
+			err = parser_follow_link(p, cfg, elem, nodes, swcfg, _parse_files, L);
+			if (err)
+				return err;
+			continue;
+		}
 		/*
 		 * Check for mandatory field
 		 */
@@ -751,6 +891,19 @@ static int parse_files(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_
 	return 0;
 }
 
+static int parse_files(parsertype p, void *cfg, struct swupdate_cfg *swcfg, lua_State *L)
+{
+	void *setting;
+	const char *nodes[MAX_PARSED_NODES];
+
+	setting = find_node_and_path(p, cfg, "files", swcfg, nodes);
+
+	if (!setting)
+		return 0;
+
+	return _parse_files(p, cfg, setting, nodes, swcfg, L);
+}
+
 static int parser(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 {
 	void *scriptnode;
@@ -785,7 +938,7 @@ static int parser(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 	 * Move the partitions at the beginning to be processed
 	 * before other images
 	 */
-	parse_partitions(p, cfg, swcfg);
+	parse_partitions(p, cfg, swcfg, L);
 
 	if (L)
 		lua_parser_exit(L);
@@ -812,6 +965,7 @@ int parse_cfg (struct swupdate_cfg *swcfg, const char *filename)
 	config_init(&cfg);
 
 	/* Read the file. If there is an error, report it and exit. */
+	DEBUG("Parsing config file %s", filename);
 	if(config_read_file(&cfg, filename) != CONFIG_TRUE) {
 		printf("%s ", config_error_file(&cfg));
 		printf("%d ", config_error_line(&cfg));
@@ -851,6 +1005,7 @@ int parse_json(struct swupdate_cfg *swcfg, const char *filename)
 	json_object *cfg;
 	parsertype p = JSON_PARSER;
 
+	DEBUG("Parsing config file %s", filename);
 	/* Read the file. If there is an error, report it and exit. */
 	ret = stat(filename, &stbuf);
 
@@ -858,7 +1013,7 @@ int parse_json(struct swupdate_cfg *swcfg, const char *filename)
 		return -EBADF;
 
 	size = stbuf.st_size;
-	string = (char *)malloc(size);
+	string = (char *)malloc(size+1);
 	if (!string)
 		return -ENOMEM;
 
@@ -870,6 +1025,15 @@ int parse_json(struct swupdate_cfg *swcfg, const char *filename)
 
 	ret = read(fd, string, size);
 	close(fd);
+	if (ret < 0) {
+		ret = -errno;
+		free(string);
+		return ret;
+	}
+	if (ret != size) {
+		ERROR("partial read of %s, proceeding anyway", filename);
+	}
+	string[ret] = '\0';
 
 	cfg = json_tokener_parse(string);
 	if (!cfg) {

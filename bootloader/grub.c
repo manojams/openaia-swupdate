@@ -2,7 +2,7 @@
  * Author: Maciej Pijanowski maciej.pijanowski@3mdeb.com
  * Copyright (C) 2017, 3mdeb
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include "bootloader.h"
@@ -44,7 +44,12 @@ static int grubenv_open(struct grubenv_t *grubenv)
 		goto cleanup;
 	}
 
-	buf = malloc(size);
+	/* grubenv is a block of 'size' bytes not null-terminated, and this is a
+	 * problem when using strtok, which is expecting a null-terminated
+	 * string. Allocate an extra byte to terminate the buffer or strtok will
+	 * overrun it and use calloc() to get a cleared buffer.
+	 * . */
+	buf = calloc(1, size + 1);
 	if (!buf) {
 		ERROR("Not enough memory for environment");
 		fclose(fp);

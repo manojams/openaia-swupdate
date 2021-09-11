@@ -2,7 +2,7 @@
  * (C) Copyright 2016
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdio.h>
@@ -96,6 +96,7 @@ static void _swupdate_download_update(unsigned int perc, unsigned long long tota
 	struct swupdate_progress *pprog = &progress;
 	pthread_mutex_lock(&pprog->lock);
 	if (perc != pprog->msg.dwl_percent) {
+		pprog->msg.status = DOWNLOAD;
 		pprog->msg.dwl_percent = perc;
 		pprog->msg.dwl_bytes = totalbytes;
 		send_progress_msg();
@@ -124,6 +125,7 @@ void swupdate_progress_update(unsigned int perc)
 	struct swupdate_progress *pprog = &progress;
 	pthread_mutex_lock(&pprog->lock);
 	if (perc != pprog->msg.cur_percent && pprog->step_running) {
+		pprog->msg.status = PROGRESS;
 		pprog->msg.cur_percent = perc;
 		send_progress_msg();
 	}
@@ -196,7 +198,7 @@ void swupdate_progress_info(RECOVERY_STATUS status, int cause, const char *info)
 {
 	struct swupdate_progress *pprog = &progress;
 	pthread_mutex_lock(&pprog->lock);
-	snprintf(pprog->msg.info, sizeof(pprog->msg.info), "{'%d': %s}",
+	snprintf(pprog->msg.info, sizeof(pprog->msg.info), "{\"%d\": %s}",
 			cause, info);
 	pprog->msg.infolen = strlen(pprog->msg.info);
 	pprog->msg.status = status;
@@ -258,6 +260,7 @@ void *progress_bar_thread (void __attribute__ ((__unused__)) *data)
 			get_prog_socket());
 	}
 
+	thread_ready();
 	do {
 		clilen = sizeof(cliaddr);
 		if ( (connfd = accept(listen, (struct sockaddr *) &cliaddr, &clilen)) < 0) {

@@ -2,7 +2,7 @@
  * (C) Copyright 2019
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 /*
@@ -33,7 +33,7 @@ struct wsconn {
 	struct curlconn	*conn;	/* Back pointer to main structure */
 };
 
-#define TEXTRANGE_TO_STR(f)	(substring(f.first, 0, f.afterLast - f.first))
+#define TEXTRANGE_TO_STR(f)	(f.first == NULL ? NULL : substring(f.first, 0, f.afterLast - f.first))
 
 static int callback_ws_swupdate(struct lws *wsi, enum lws_callback_reasons reason,
 				      void *user, void *in, size_t len)

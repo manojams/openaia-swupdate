@@ -2,7 +2,7 @@
  * (C) Copyright 2012
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdbool.h>
@@ -364,7 +364,8 @@ static int zstd_step(void* state, void* buffer, size_t size)
 			decompress_ret = ZSTD_decompressStream(s->dctx, &output, &s->input_view);
 
 			if (ZSTD_isError(decompress_ret)) {
-				ERROR("ZSTD_decompressStream failed (returned %zu)", decompress_ret);
+				ERROR("ZSTD_decompressStream failed: %s",
+				      ZSTD_getErrorName(decompress_ret));
 				return -1;
 			}
 
@@ -381,7 +382,7 @@ static int zstd_step(void* state, void* buffer, size_t size)
 
 int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsigned long long seek,
 	int skip_file, int __attribute__ ((__unused__)) compressed,
-	uint32_t *checksum, unsigned char *hash, int encrypted, const char *imgivt, writeimage callback)
+	uint32_t *checksum, unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback)
 {
 	unsigned int percent, prevpercent = 0;
 	int ret = 0;
@@ -677,70 +678,6 @@ int extract_cpio_header(int fd, struct filehdr *fhdr, unsigned long *offset)
 	return 0;
 }
 
-int extract_sw_description(int fd, const char *descfile, off_t *offs, bool encrypted)
-{
-	struct filehdr fdh;
-	unsigned long offset = *offs;
-	char output_file[MAX_IMAGE_FNAME];
-	uint32_t checksum;
-	int fdout;
-	const char* TMPDIR = get_tmpdir();
-
-	if (extract_cpio_header(fd, &fdh, &offset)) {
-		ERROR("CPIO Header wrong");
-		return -1;
-	}
-
-	if (strcmp(fdh.filename, descfile)) {
-		ERROR("Expected %s but found %s.",
-			descfile,
-			fdh.filename);
-		return -1;
-	}
-	if ((strlen(TMPDIR) + strlen(fdh.filename)) > sizeof(output_file)) {
-		ERROR("File Name too long : %s", fdh.filename);
-		return -1;
-	}
-	strlcpy(output_file, TMPDIR, sizeof(output_file));
-	strcat(output_file, fdh.filename);
-	fdout = openfileoutput(output_file);
-	if (fdout < 0) {
-		return -1;
-	}
-
-	if (lseek(fd, offset, SEEK_SET) < 0) {
-		ERROR("CPIO file corrupted : %s", strerror(errno));
-		close(fdout);
-		return -1;
-	}
-	if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, NULL, encrypted ? 1 : 0, NULL, NULL) < 0) {
-		ERROR("%s corrupted or not valid", descfile);
-		close(fdout);
-		return -1;
-	}
-
-	close(fdout);
-
-	TRACE("Found file");
-	TRACE("filename %s", fdh.filename);
-	TRACE("\tsize %lu", (unsigned long)fdh.size);
-	TRACE("\tchecksum 0x%lx %s",
-		(unsigned long)checksum,
-		(checksum == fdh.chksum) ? "VERIFIED" : "WRONG");
-
-#ifndef CONFIG_DISABLE_CPIO_CRC
-	if (checksum != fdh.chksum) {
-		ERROR("Checksum WRONG ! Computed 0x%lx, it should be 0x%lx",
-			(unsigned long)checksum, fdh.chksum);
-		return -1;
-	}
-#endif
-
-	*offs = offset;
-
-	return 0;
-}
-
 int extract_img_from_cpio(int fd, unsigned long offset, struct filehdr *fdh)
 {
 
@@ -839,7 +776,7 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 		 * we do not have to provide fdout
 		 */
 		if (copyfile(fd, NULL, fdh.size, &offset, 0, 1, 0, &checksum, img ? img->sha256 : NULL,
-				0, NULL, NULL) != 0) {
+				false, NULL, NULL) != 0) {
 			ERROR("invalid archive");
 			return -1;
 		}

@@ -6,12 +6,13 @@
 #
 # Copyright (C) 1999-2005 by Erik Andersen <andersen@codepoet.org>
 #
-# SPDX-License-Identifier:     GPL-2.0-or-later
+# SPDX-License-Identifier:     GPL-2.0-only
 
 obj-y += swupdate.o \
 	 cpio_utils.o \
 	 notifier.o \
 	 handler.o \
+	 install_from_file.o \
 	 util.o \
 	 parser.o \
 	 pctl.o \
@@ -24,4 +25,5 @@ obj-y += swupdate.o \
 	 parsing_library.o \
 	 artifacts_versions.o \
 	 swupdate_dict.o \
-	 semver.o
+	 semver.o \
+	 strlcpy.o

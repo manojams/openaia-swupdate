@@ -58,7 +58,6 @@ static void *swupdate_async_thread(void *data)
 	} while(size > 0);
 
 	ipc_end(rq->connfd);
-	printf("Now getting status\n");
 
 	/*
 	 * Everything sent, ask for status
@@ -168,6 +167,41 @@ int swupdate_set_aes(char *key, char *ivt)
 	 */
 	strncpy(msg.data.aeskeymsg.key_ascii, key, sizeof(msg.data.aeskeymsg.key_ascii) - 1);
 	strncpy(msg.data.aeskeymsg.ivt_ascii, ivt, sizeof(msg.data.aeskeymsg.ivt_ascii) - 1);
+
+	return ipc_send_cmd(&msg);
+}
+
+/*
+ * Set via IPC the range of accepted versions
+ * Versions are string and they can use semver
+ */
+int swupdate_set_version_range(const char *minversion,
+				const char *maxversion,
+				const char *currentversion)
+{
+	ipc_message msg;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.magic = IPC_MAGIC;
+	msg.type = SET_VERSIONS_RANGE;
+
+	if (minversion) {
+		strncpy(msg.data.versions.minimum_version,
+			minversion,
+			sizeof(msg.data.versions.minimum_version) - 1);
+	}
+
+	if (maxversion) {
+		strncpy(msg.data.versions.maximum_version,
+			maxversion,
+			sizeof(msg.data.versions.maximum_version) - 1);
+	}
+
+	if (currentversion) {
+		strncpy(msg.data.versions.current_version,
+			currentversion,
+			sizeof(msg.data.versions.maximum_version) - 1);
+	}
 
 	return ipc_send_cmd(&msg);
 }

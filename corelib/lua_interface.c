@@ -3,7 +3,7 @@
  * Stefano Babic, DENX Software Engineering, sbabic@denx.de.
  * 	on behalf of ifm electronic GmbH
  *
- * SPDX-License-Identifier:     GPL-2.0-or-later
+ * SPDX-License-Identifier:     GPL-2.0-only
  */
 
 #include <stdlib.h>
@@ -328,6 +328,8 @@ static void lua_bool_to_img(struct img_type *img, const char *key,
 		img->is_partitioner = (bool)val;
 	if (!strcmp(key, "script"))
 		img->is_script = (bool)val;
+	if (!strcmp(key, "preserve_attributes"))
+		img->preserve_attributes = (bool)val;
 }
 
 static void lua_number_to_img(struct img_type *img, const char *key,
@@ -493,6 +495,7 @@ static void update_table(lua_State* L, struct img_type *img)
 		LUA_PUSH_IMG_BOOL(img, "encrypted", is_encrypted);
 		LUA_PUSH_IMG_BOOL(img, "partition", is_partitioner);
 		LUA_PUSH_IMG_BOOL(img, "script", is_script);
+		LUA_PUSH_IMG_BOOL(img, "preserve_attributes", preserve_attributes);
 
 		LUA_PUSH_IMG_NUMBER(img, "offset", seek);
 		LUA_PUSH_IMG_NUMBER(img, "size", size);
@@ -805,6 +808,35 @@ l_umount_exit:
 	return 1;
 }
 
+static int l_getroot(lua_State *L) {
+	char *rootdev = get_root_device();
+	root_dev_type type = ROOT_DEV_PATH;
+	char **root = NULL;
+	char *value = rootdev;
+
+	root = string_split(rootdev, '=');
+	if (count_string_array((const char **)root) > 1) {
+		if (!strncmp(root[0], "UUID", strlen("UUID"))) {
+			type = ROOT_DEV_UUID;
+		} else if (strncmp(root[0], "PARTUUID", strlen("PARTUUID"))) {
+			type = ROOT_DEV_PARTUUID;
+		} else if (strncmp(root[0], "PARTLABEL", strlen("PARTLABEL"))) {
+			type = ROOT_DEV_PARTLABEL;
+		}
+		value = root[1];
+	}
+	lua_newtable (L);
+	lua_pushstring(L, "type");
+	lua_pushinteger(L, type);
+	lua_settable(L, -3);
+	lua_pushstring(L, "value");
+	lua_pushstring(L, value);
+	lua_settable(L, -3);
+	free(rootdev);
+	free_string_array(root);
+	return 1;
+}
+
 static int l_get_bootenv(lua_State *L) {
 	const char *name = luaL_checkstring(L, 1);
 	char *value = NULL;
@@ -878,6 +910,7 @@ static const luaL_Reg l_swupdate[] = {
         { "debug", lua_notify_debug },
         { "mount", l_mount },
         { "umount", l_umount },
+        { "getroot", l_getroot },
         { NULL, NULL }
 };
 
@@ -928,6 +961,15 @@ static int luaopen_swupdate(lua_State *L)
 	lua_push_enum(L, "DONE", DONE);
 	lua_push_enum(L, "SUBPROCESS", SUBPROCESS);
 	lua_push_enum(L, "PROGRESS", SUBPROCESS);
+	lua_settable(L, -3);
+
+	/* export the root device type */
+	lua_pushstring(L, "ROOT_DEVICE");
+	lua_newtable (L);
+	lua_push_enum(L, "PATH", ROOT_DEV_PATH);
+	lua_push_enum(L, "UUID", ROOT_DEV_UUID);
+	lua_push_enum(L, "PARTUUID", ROOT_DEV_PARTUUID);
+	lua_push_enum(L, "PARTLABEL", ROOT_DEV_PARTLABEL);
 	lua_settable(L, -3);
 
 #ifdef CONFIG_HANDLER_IN_LUA
