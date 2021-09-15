@@ -1,3 +1,24 @@
+swupdate (2021.04-1) unstable; urgency=medium
+
+  [ Bastian Germann ]
+  * Add diskformat and uuid handlers
+  * Add new symbol swupdate_set_version_range
+  * d/control:
+    - Fix cross builds issue by adding arch-independent build deps
+      (Closes: #983045)
+  * d/copyright:
+    - Provide more accurate info.
+
+  [ SZ Lin (林上智) ]
+  * Import new upstream release (Closes: #987905)
+  * Fix the content of the override file
+  * d/control:
+    - Bump Standards-Version to 4.6.0.1
+  * d/tests/testsuite:
+    - Remove unneeded symbolic link
+
+ -- SZ Lin (林上智) <szlin@debian.org>  Wed, 15 Sep 2021 22:44:59 +0800
+
 swupdate (2020.11-2) unstable; urgency=medium
 
   [ Bastian Germann ]
