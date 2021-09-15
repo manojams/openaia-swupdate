@@ -33,6 +33,8 @@ ifneq (,$(filter pkg.swupdate.uboot,$(DEB_BUILD_PROFILES)))
 else ifneq (,$(filter pkg.swupdate.grub,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_BOOTLOADER_GRUB=y                   >> configs/debian_defconfig
 	echo CONFIG_GRUBENV_PATH=\"/boot/grub/grubenv\" >> configs/debian_defconfig
+else ifneq (,$(filter pkg.swupdate.efibootguard,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_BOOTLOADER_EBG=y                    >> configs/debian_defconfig
 else
 	echo CONFIG_BOOTLOADER_NONE=y                   >> configs/debian_defconfig
 endif
