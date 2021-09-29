@@ -36,6 +36,9 @@ else ifneq (,$(filter pkg.swupdate.grub,$(DEB_BUILD_PROFILES)))
 else
 	echo CONFIG_BOOTLOADER_NONE=y                   >> configs/debian_defconfig
 endif
+ifeq (,$(filter pkg.swupdate.nosigning,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_SIGNED_IMAGES=y >> configs/debian_defconfig
+endif
 ifneq (,$(filter pkg.swupdate.p11,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_PKCS11=y >> configs/debian_defconfig
 endif
