@@ -38,6 +38,9 @@ else ifneq (,$(filter pkg.swupdate.efibootguard,$(DEB_BUILD_PROFILES)))
 else
 	echo CONFIG_BOOTLOADER_NONE=y                   >> configs/debian_defconfig
 endif
+ifeq (,$(filter pkg.swupdate.nohwcompat,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_HW_COMPATIBILITY=y                   >> configs/debian_defconfig
+endif
 ifeq (,$(filter pkg.swupdate.nosigning,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_SIGNED_IMAGES=y >> configs/debian_defconfig
 endif
