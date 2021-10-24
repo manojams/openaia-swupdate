@@ -34,6 +34,7 @@ Build-Depends: debhelper-compat (= 13),
                sphinx <!nodoc>,
                texlive-latex-recommended <!nodoc>,
                texlive-fonts-recommended <!nodoc>,
+               tex-gyre <!nodoc>,
                texlive-formats-extra <!nodoc>
 Standards-Version: 4.6.0.1
 Rules-Requires-Root: no
