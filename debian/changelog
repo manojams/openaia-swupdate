@@ -1,3 +1,12 @@
+swupdate (2021.04-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload
+  * Remove deprecated Salsa CI config
+  * latexmk without :native is alternative build dependency (Closes: #997473)
+  * Add tex-gyre build dependency
+
+ -- Bastian Germann <bage@debian.org>  Sun, 24 Oct 2021 13:34:27 +0200
+
 swupdate (2021.04-1) unstable; urgency=medium
 
   [ Bastian Germann ]
