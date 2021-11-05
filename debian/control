@@ -6,7 +6,7 @@ Uploaders: SZ Lin (林上智) <szlin@debian.org>,
            Nobuhiro Iwamatsu <iwamatsu@debian.org>
 Build-Depends: debhelper-compat (= 13),
                dh-lua:native <!nolua>,
-               liblua5.2-dev <!nolua>,
+               liblua5.3-dev <!nolua>,
                libfdisk-dev,
                latexmk | latexmk:native <!nodoc>,
                libconfig-dev,
