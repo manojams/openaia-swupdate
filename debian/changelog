@@ -1,3 +1,15 @@
+swupdate (2021.04-2) unstable; urgency=medium
+
+  * Update lua version to non-orphaned 5.3
+  * Fix source-is-missing
+  * Allow cross build with sphinx
+  * Set bage as Maintainer (Closes: #1000211)
+
+  [ Quirin Gylstorff ]
+  * debian/config: Make signing optional
+
+ -- Bastian Germann <bage@debian.org>  Mon, 22 Nov 2021 09:27:22 +0100
+
 swupdate (2021.04-1.1) unstable; urgency=medium
 
   * Non-maintainer upload
