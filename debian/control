@@ -1,7 +1,7 @@
 Source: swupdate
 Section: embedded
 Priority: optional
-Maintainer: Stefano Babic <sbabic@denx.de>
+Maintainer: Bastian Germann <bage@debian.org>
 Uploaders: SZ Lin (林上智) <szlin@debian.org>,
            Nobuhiro Iwamatsu <iwamatsu@debian.org>
 Build-Depends: debhelper-compat (= 13),
