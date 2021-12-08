@@ -58,10 +58,8 @@ override_dh_auto_build:
 ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
 	$(MAKE) man latexpdf
 	mv doc/build/man/client.1 doc/build/man/swupdate-client.1
-	mv doc/build/man/sendtohawkbit.1 doc/build/man/swupdate-sendtohawkbit.1
-	mv doc/build/man/hawkbitcfg.1 doc/build/man/swupdate-hawkbitcfg.1
+	mv doc/build/man/ipc.1 doc/build/man/swupdate-ipc.1
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
-	mv doc/build/man/sysrestart.1 doc/build/man/swupdate-sysrestart.1
 endif
 	dh_auto_build -- V=1
 

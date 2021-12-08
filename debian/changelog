@@ -2,6 +2,7 @@ swupdate (2021.11-1) UNRELEASED; urgency=medium
 
   * Add option to build with efibootguard
   * New upstream version 2021.11
+  * Drop old and add new executables/manpages
 
  -- Bastian Germann <bage@debian.org>  Wed, 08 Dec 2021 22:45:33 +0100
 
