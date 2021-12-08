@@ -1,5 +1,5 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: swupdate
+Upstream-Name: SWUpdate
 Upstream-Contact: Stefano Babic <sbabic@denx.de>
 Source: https://github.com/sbabic/swupdate
 
@@ -53,7 +53,7 @@ Files:     mongoose/mongoose_interface.c
 Copyright: 2004-2013 Sergey Lyubka
            2013 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
            2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
-License:   Expat and GPL-2
+License:   MIT and GPL-2
 
 Files:     core/swupdate_dict.c
 Copyright: 2016 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
@@ -91,7 +91,7 @@ License:   GPL-2
 Files:     core/semver.c
            include/semver.h
 Copyright: 2015-2017 Tomas Aparicio
-License:   Expat
+License:   MIT
 
 Files:     core/strlcpy.c
 Copyright: 1998, 2015 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -187,14 +187,14 @@ License:   GPL-2+
 Files:     bindings/auxiliar.c
            bindings/auxiliar.h
 Copyright: 2004-2013 Diego Nehab <diego@impa.br>
-License:   Expat
+License:   MIT
 
 Files:     web-app/css/swupdate.css
            web-app/gulpfile.js
            web-app/scss/bootstrap.scss
            web-app/js/swupdate.js
 Copyright: 2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
-License:   Expat
+License:   MIT
 
 Files:     scripts/kconfig/mconf.c
 Copyright: 2002 Roman Zippel <zippel@linux-m68k.org>
@@ -247,10 +247,81 @@ Files:     include/bsdqueue.h
 Copyright: 1991, 1993 The Regents of the University of California
 License:   BSD-3-Clause
 
-Files:     SWUpdate.svg
-Comment:   See also https://github.com/sbabic/swupdate/commit/3612a85f3664356b8
+Files: examples/www/v2/css/fontawesome.min.css
+Copyright: 2019 Font Awesome
+License: MIT
+
+Files: examples/www/v2/css/solid.min.css
+Copyright: 2019 Font Awesome
+License: MIT
+
+Files: examples/www/v2/webfonts/*
+Copyright: 2016 Font Awesome
+License: OFL-1.1
+
+Files: examples/www/v2/images/favicon.png
 Copyright: 2016 Andres Babic <andres.babic@gmail.com>
-License:   CC-BY-SA-4.0
+License: CC-BY-SA-4.0
+
+Files: web-app/images/favicon.png
+Copyright: 2016 Andres Babic <andres.babic@gmail.com>
+License: CC-BY-SA-4.0
+
+Files: examples/www/v2/images/logo.png
+Copyright: 2016 Andres Babic <andres.babic@gmail.com>
+License: CC-BY-SA-4.0
+
+Files: web-app/images/logo.png
+Copyright: 2016 Andres Babic <andres.babic@gmail.com>
+License: CC-BY-SA-4.0
+
+Files: SWUpdate.svg
+Copyright: 2016 Andres Babic <andres.babic@gmail.com>
+License: CC-BY-SA-4.0
+
+Files: examples/description/sw-description-json
+Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
+License: CC0-1.0
+
+Files: examples/www/v2/images/background.jpg
+Copyright: 2016 Gerd Altmann
+License: CC0-1.0
+
+Files: web-app/images/background.jpg
+Copyright: 2016 Gerd Altmann
+License: CC0-1.0
+
+Files: examples/www/v2/index.html
+Copyright: 2018 Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
+License: MIT
+
+Files: web-app/index.html
+Copyright: 2018 Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
+License: MIT
+
+Files: web-app/package.json
+Copyright: 2018 Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
+License: MIT
+
+Files: examples/www/v2/css/dropzone.min.css
+Copyright: 2012 Matias Meno <m@tias.me>
+License: MIT
+
+Files: examples/www/v2/js/dropzone.min.js
+Copyright: 2012 Matias Meno <m@tias.me>
+License: MIT
+
+Files: examples/www/v2/js/bootstrap.min.js
+Copyright: 2011-2018 the Bootstrap Authors
+License: MIT
+
+Files: examples/www/v2/js/jquery.min.js
+Copyright: 2011-2018 OpenJS Foundation and other contributors
+License: MIT
+
+Files: doc/source/images/*
+Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
+License: GPL-2
 
 Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
@@ -265,7 +336,7 @@ Files:     .travis.yml
            debian/swupdate.socket
            debian/swupdate.tmpfiles
 Copyright: 2015, 2017 Stefano Babic <sbabic@denx.de>
-License:   Expat
+License:   MIT
 
 License:   LGPL-2.1+
  This library is free software; you can redistribute it and/or
@@ -302,7 +373,7 @@ License:   GPL-2+
  On Debian systems, the complete text of the GNU General
  Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
 
-License: Expat
+License: MIT
  Permission is hereby granted, free of charge, to any person obtaining
  a copy of this software and associated documentation files (the
  "Software"), to deal in the Software without restriction, including
