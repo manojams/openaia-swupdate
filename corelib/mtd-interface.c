@@ -28,14 +28,14 @@ static char mtd_ubi_blacklist[100] = { 0 };
  */
 #define EMPTY_BYTE	0xFF
 
-int flash_erase(int mtdnum)
+int flash_erase_sector(int mtdnum, off_t start, size_t size)
 {
 	int fd;
 	char mtd_device[80];
 	struct mtd_dev_info *mtd;
 	int noskipbad = 0;
 	int ret = 0;
-	unsigned int eb, eb_start, eb_cnt, i;
+	unsigned int eb, eb_start, i, eb_end, end;
 	uint8_t *buf;
 	struct flash_description *flash = get_flash_info();
 
@@ -45,6 +45,17 @@ int flash_erase(int mtdnum)
 	}
 	mtd = &flash->mtd_info[mtdnum].mtd;
 	snprintf(mtd_device, sizeof(mtd_device), "/dev/mtd%d", mtdnum);
+
+	eb_start = start;
+	size = size ? size : mtd->size;
+	if (!mtd->eb_size)
+		return -EINVAL;
+
+	end = start + size;
+	eb_start /= mtd->eb_size;
+	eb_end = end / mtd->eb_size;
+	if (end % mtd->eb_size)
+		eb_end++;
 
 	if ((fd = open(mtd_device, O_RDWR)) < 0) {
 		ERROR( "%s: %s: %s", __func__, mtd_device, strerror(errno));
@@ -62,9 +73,7 @@ int flash_erase(int mtdnum)
 		return -ENOMEM;
 	}
 
-	eb_start = 0;
-	eb_cnt = (mtd->size / mtd->eb_size) - eb_start;
-	for (eb = 0; eb < eb_start + eb_cnt; eb++) {
+	for (eb = eb_start; eb < eb_end; eb++) {
 
 		/* Always skip bad sectors */
 		if (!noskipbad) {
@@ -134,6 +143,10 @@ erase_out:
 	return ret;
 }
 
+int flash_erase(int mtdnum)
+{
+	return flash_erase_sector(mtdnum, 0, 0);
+}
 
 void mtd_init(void)
 {

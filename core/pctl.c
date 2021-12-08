@@ -328,7 +328,7 @@ int run_system_cmd(const char *cmd)
 			fd_set readfds;
 			int n, i;
 
-			w = waitpid(process_id, &wstatus, WNOHANG | WUNTRACED | WCONTINUED);
+			w = waitpid(process_id, &wstatus, WNOHANG);
 			if (w == -1) {
 				ERROR("Error from waitpid() !!");
 				close(stdoutpipe[PIPE_READ]);
@@ -386,8 +386,11 @@ int run_system_cmd(const char *cmd)
 		if (WIFEXITED(wstatus)) {
 			ret = WEXITSTATUS(wstatus);
 			TRACE("%s command returned %d", cmd, ret);
-		} else {
+		} else if (WIFSIGNALED(wstatus)) {
 			TRACE("(%s) killed by signal %d\n", cmd, WTERMSIG(wstatus));
+			ret = -1;
+		} else {
+			TRACE("(%s) not exited nor killed!\n", cmd);
 			ret = -1;
 		}
 	}
@@ -404,7 +407,6 @@ int run_system_cmd(const char *cmd)
 void sigchld_handler (int __attribute__ ((__unused__)) signum)
 {
 	int childpid, status, serrno;
-	int exitstatus;
 	int hasdied = 0;
 	int i;
 
@@ -427,11 +429,9 @@ void sigchld_handler (int __attribute__ ((__unused__)) signum)
 			hasdied = 0;
 			if (WIFEXITED(status)) {
 				hasdied = 1;
-				exitstatus = WEXITSTATUS(status);
-				printf("exited, status=%d\n", exitstatus);
+				printf("exited, status=%d\n", WIFEXITED(status));
 			} else if (WIFSIGNALED(status)) {
 				hasdied = 1;
-				exitstatus = WTERMSIG(status);
 				printf("killed by signal %d\n", WTERMSIG(status));
 			} else if (WIFSTOPPED(status)) {
 				printf("stopped by signal %d\n", WSTOPSIG(status));
@@ -454,7 +454,11 @@ void sigchld_handler (int __attribute__ ((__unused__)) signum)
 			}
 		}
 
-		exit(exitstatus);
+		/*
+		 * exit() it not safe to call from a signal handler because of atexit()
+		 * handlers, so send SIGTERM to ourself instead
+		 */
+		kill(getpid(), SIGTERM);
 	}
 
 	errno = serrno;

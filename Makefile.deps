@@ -62,8 +62,20 @@ ifeq ($(HAVE_LIBEBGENV),)
 export HAVE_LIBEBGENV = y
 endif
 
+ifeq ($(HAVE_LIBEXT2FS),)
+export HAVE_LIBEXT2FS = y
+endif
+
 ifeq ($(HAVE_LIBSSL),)
 export HAVE_LIBSSL = y
+endif
+
+ifeq ($(HAVE_LIBSYSTEMD),)
+ifeq ($(HAVE_LINUX),y)
+export HAVE_LIBSYSTEMD = y
+else
+export HAVE_LIBSYSTEMD = n
+endif
 endif
 
 ifeq ($(HAVE_LIBCRYPTO),)
@@ -90,6 +102,14 @@ ifeq ($(HAVE_LIBWEBSOCKETS),)
 export HAVE_LIBWEBSOCKETS = y
 endif
 
+ifeq ($(HAVE_LIBRSYNC),)
+export HAVE_LIBRSYNC = y
+endif
+
 ifeq ($(HAVE_URIPARSER),)
 export HAVE_URIPARSER = y
+endif
+
+ifeq ($(HAVE_ZCK),)
+export HAVE_ZCK = y
 endif

@@ -290,6 +290,9 @@ int main(int argc, char **argv)
 				case SOURCE_DOWNLOADER:
 					fprintf(stdout, "DOWNLOADER\n\n");
 					break;
+				case SOURCE_CHUNKS_DOWNLOADER:
+					fprintf(stdout, "CHUNKS DOWNLOADER\n\n");
+					break;
 				case SOURCE_LOCAL:
 					fprintf(stdout, "LOCAL\n\n");
 					break;
@@ -337,8 +340,6 @@ int main(int argc, char **argv)
 
 				if (psplash_ok && ((msg.cur_step != curstep) || (msg.cur_percent != percent))) {
 					psplash_progress(psplash_pipe_path, &msg);
-					curstep = msg.cur_step;
-					percent = msg.cur_percent;
 				}
 				curstep = msg.cur_step;
 				percent = msg.cur_percent;

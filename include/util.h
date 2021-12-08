@@ -134,22 +134,6 @@ void notifier_set_color(int level, char *col);
 
 #define LG_16 4
 #define FROM_HEX(f) from_ascii (f, sizeof f, LG_16)
-#if !defined(CONFIG_DISABLE_CPIO_CRC)
-static inline bool swupdate_verify_chksum(const uint32_t chk1, const uint32_t chk2) {
-	bool ret = (chk1 == chk2);
-	if (!ret) {
-		ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
-			chk1, chk2);
-	}
-	return ret;
-}
-#else
-static inline bool swupdate_verify_chksum(
-		const uint32_t  __attribute__ ((__unused__))chk1,
-		const uint32_t  __attribute__ ((__unused__))chk2) {
-	return true;
-}
-#endif
 uintmax_t
 from_ascii (char const *where, size_t digs, unsigned logbase);
 int ascii_to_hash(unsigned char *hash, const char *s);
@@ -171,12 +155,14 @@ int IsValidHash(const unsigned char *hash);
 		_a < _b ? _a : _b; })
 
 char *sdup(const char *str);
+bool strtobool(const char *s);
 
 /*
  * Function to extract / copy images
  */
 typedef int (*writeimage) (void *out, const void *buf, unsigned int len);
 
+void *saferealloc(void *ptr, size_t size);
 int openfile(const char *filename);
 int copy_write(void *out, const void *buf, unsigned int len);
 #if defined(__FreeBSD__)
@@ -192,6 +178,8 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
 	int skip_file, int compressed, uint32_t *checksum,
 	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
+int copybuffer(unsigned char *inbuf, void *out, unsigned int nbytes, int compressed,
+	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 			int encrypted, char *ivt, unsigned char *hash);
 int openfileoutput(const char *filename);
@@ -205,6 +193,7 @@ char **splitargs(char *args, int *argc);
 char *mstrcat(const char **nodes, const char *delim);
 char** string_split(const char* a_str, const char a_delim);
 char *substring(const char *src, int first, int len);
+char *string_tolower(char *s);
 size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
 int get_hw_revision(struct hw_type *hw);
@@ -244,9 +233,14 @@ unsigned long long ustrtoull(const char *cp, unsigned int base);
 const char* get_tmpdir(void);
 const char* get_tmpdirscripts(void);
 
+void swupdate_create_directory(const char* path);
+#ifndef CONFIG_NOCLEANUP
+int swupdate_remove_directory(const char* path);
+#endif
+
 int swupdate_mount(const char *device, const char *dir, const char *fstype);
 int swupdate_umount(const char *dir);
 
 /* Date / Time utilities */
-char *swupdate_time_iso8601(void);
+char *swupdate_time_iso8601(struct timeval *tv);
 #endif

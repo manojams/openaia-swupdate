@@ -211,7 +211,6 @@ static int install_raw_file(struct img_type *img,
 	int use_mount = (strlen(img->device) && strlen(img->filesystem)) ? 1 : 0;
 	char* DATADST_DIR = alloca(strlen(get_tmpdir())+strlen(DATADST_DIR_SUFFIX)+1);
 	sprintf(DATADST_DIR, "%s%s", get_tmpdir(), DATADST_DIR_SUFFIX);
-	char* make_path;
 
 	if (strlen(img->path) == 0) {
 		ERROR("Missing path attribute");
@@ -241,9 +240,7 @@ static int install_raw_file(struct img_type *img,
 	TRACE("Installing file %s on %s",
 		img->fname, path);
 
-	make_path = dict_get_value(&img->properties, "create-destination");
-
-	if (make_path != NULL && strcmp(make_path, "true") == 0) {
+	if (strtobool(dict_get_value(&img->properties, "create-destination"))) {
 		TRACE("Creating path %s", path);
 		fdout = mkpath(dirname(strdupa(path)), 0755);
 		if (fdout < 0) {
@@ -253,6 +250,8 @@ static int install_raw_file(struct img_type *img,
 	}
 
 	fdout = openfileoutput(path);
+	if (fdout < 0)
+		return fdout;
 	if (!img_check_free_space(img, fdout)) {
 		return -ENOSPC;
 	}
@@ -288,5 +287,5 @@ __attribute__((constructor))
 void raw_copyimage_handler(void)
 {
 	register_handler("rawcopy", copy_raw_image,
-				IMAGE_HANDLER | NO_DATA_HANDLER, NULL);
+				SCRIPT_HANDLER | NO_DATA_HANDLER, NULL);
 }

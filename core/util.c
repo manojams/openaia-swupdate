@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/param.h>
@@ -24,6 +25,7 @@
 #include <libgen.h>
 #include <regex.h>
 #include <string.h>
+#include <dirent.h>
 
 #if defined(__linux__)
 #include <sys/statvfs.h>
@@ -145,6 +147,45 @@ const char* get_tmpdirscripts(void)
 	return TMPDIRSCRIPT;
 }
 
+void swupdate_create_directory(const char* path) {
+	char* dpath;
+	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
+		ENOMEM_ASPRINTF) {
+		ERROR("OOM: Directory %s not created", path);
+		return;
+	}
+	if (mkdir(dpath, 0777)) {
+		WARN("Directory %s cannot be created due to : %s",
+			 path, strerror(errno));
+	}
+	free(dpath);
+}
+
+#ifndef CONFIG_NOCLEANUP
+static int _remove_directory_cb(const char *fpath, const struct stat *sb,
+								int typeflag, struct FTW *ftwbuf)
+{
+	(void)sb;
+	(void)typeflag;
+	(void)ftwbuf;
+	return remove(fpath);
+}
+
+int swupdate_remove_directory(const char* path)
+{
+	char* dpath;
+	int ret;
+	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
+		ENOMEM_ASPRINTF) {
+		ERROR("OOM: Directory %s not removed", path);
+		return -ENOMEM;
+	}
+	ret = nftw(dpath, _remove_directory_cb, 64, FTW_DEPTH | FTW_PHYS);
+	free(dpath);
+	return ret;
+}
+#endif
+
 char **splitargs(char *args, int *argc)
 {
 	char **argv = NULL;
@@ -170,6 +211,18 @@ void freeargs (char **argv)
 		free(argv - 1);
 	}
 }
+
+void *saferealloc(void *ptr, size_t size) {
+    void *ret = realloc(ptr, size);
+    /*
+     * Realloc does not touch the original block if fails.
+     * Policy is to free memory and returns with error (Null)
+     */
+    if (!ret && ptr)
+        free(ptr);
+    return ret;
+}
+
 
 /*
  * Concatente array of strings in a single string
@@ -225,6 +278,18 @@ char *substring(const char *src, int first, int len) {
 		return NULL;
 	memcpy(s, &src[first], len);
 	s[len] = '\0';
+	return s;
+}
+
+/*
+ * Convert all chars of a string to lower,
+ * there is no ready to use function
+ */
+
+char *string_tolower(char *s)
+{
+	char *p = s;
+	for ( ; *p; ++p) *p = tolower(*p);
 	return s;
 }
 
@@ -607,26 +672,24 @@ int set_aes_ivt(const char *ivt)
 
 char** string_split(const char* in, const char d)
 {
-	char** result    = 0;
-	size_t count     = 0;
+	char** result = 0;
+	size_t count = 0;
 	char* last_delim = 0;
 	char delim[2];
 	delim[0] = d;
 	delim[1] = 0;
 	char *s = strdup(in);
-	char* tmp        = s;
+	char* tmp = s;
 	if (!s)
 		return NULL;
 
 	/* Count how many elements will be extracted. */
-	while (*tmp)
-	{
-	    if (d == *tmp)
-	    {
-	        count++;
-	        last_delim = tmp;
-	    }
-	    tmp++;
+	while (*tmp) {
+		if (d == *tmp) {
+			count++;
+			last_delim = tmp;
+		}
+		tmp++;
 	}
 
 	/* Add space for trailing token. */
@@ -638,17 +701,15 @@ char** string_split(const char* in, const char d)
 
 	result = malloc(sizeof(char*) * count);
 
-	if (result)
-	{
-	    size_t idx  = 0;
-	    char* token = strtok(s, delim);
+	if (result) {
+		size_t idx  = 0;
+		char* token = strtok(s, delim);
 
-	    while (token)
-	    {
-	        *(result + idx++) = strdup(token);
-	        token = strtok(0, delim);
-	    }
-	    *(result + idx) = 0;
+		while (token) {
+			*(result + idx++) = strdup(token);
+			token = strtok(0, delim);
+		}
+		*(result + idx) = 0;
 	}
 
 	free(s);
@@ -718,6 +779,13 @@ unsigned long long ustrtoull(const char *cp, unsigned int base)
 	return result;
 }
 
+bool strtobool(const char *s)
+{
+	if (s && (!strcmp(s, "true") || !strcmp(s, "TRUE")))
+		return true;
+	return false;
+}
+
 int swupdate_mount(const char *device, const char *dir, const char *fstype)
 {
 #if defined(__linux__)
@@ -773,7 +841,7 @@ int swupdate_umount(const char *dir)
  * Date time in SWUpdate
  * @return : date in ISO8601 (it must be freed by caller)
  */
-char *swupdate_time_iso8601(void)
+char *swupdate_time_iso8601(struct timeval *tv)
 {
 	#define DATE_SIZE_ISO8601	128
 	struct timeval now;
@@ -786,7 +854,12 @@ char *swupdate_time_iso8601(void)
 	if (!buf)
 		return NULL;
 
-	gettimeofday(&now, NULL);
+	if (tv == NULL)
+		gettimeofday(&now, NULL);
+	else {
+		now.tv_sec = tv->tv_sec;
+		now.tv_usec = tv->tv_usec;
+	}
 	ms = now.tv_usec / 1000;
 
 	(void)strftime(buf, DATE_SIZE_ISO8601, "%Y-%m-%dT%T.***%z", localtime(&now.tv_sec));
@@ -851,6 +924,10 @@ size_t snescape(char *dst, size_t n, const char *src)
 /*
  * This returns the device name where rootfs is mounted
  */
+
+static int filter_slave(const struct dirent *ent) {
+	return (strcmp(ent->d_name, ".") && strcmp(ent->d_name, ".."));
+}
 static char *get_root_from_partitions(void)
 {
 	struct stat info;
@@ -858,10 +935,27 @@ static char *get_root_from_partitions(void)
 	char *devname = NULL;
 	unsigned long major, minor, nblocks;
 	char buf[256];
-	int ret;
+	int ret, dev_major, dev_minor, n;
+	struct dirent **devlist = NULL;
 
 	if (stat("/", &info) < 0)
 		return NULL;
+
+	dev_major = info.st_dev / 256;
+	dev_minor = info.st_dev % 256;
+
+	/*
+	 * Check if this is just a container, for example in case of LUKS
+	 * Search if the device has slaves pointing to another device
+	 */
+	snprintf(buf, sizeof(buf) - 1, "/sys/dev/block/%d:%d/slaves", dev_major, dev_minor);
+	n = scandir(buf, &devlist, filter_slave, NULL);
+	if (n == 1) {
+		devname = strdup(devlist[0]->d_name);
+		free(devlist);
+		return devname;
+	}
+	free(devlist);
 
 	fp = fopen("/proc/partitions", "r");
 	if (!fp)
@@ -872,7 +966,7 @@ static char *get_root_from_partitions(void)
 			     &major, &minor, &nblocks, &devname);
 		if (ret != 4)
 			continue;
-		if ((major == info.st_dev / 256) && (minor == info.st_dev % 256)) {
+		if ((major == dev_major) && (minor == dev_minor)) {
 			fclose(fp);
 			return devname;
 		}
@@ -881,6 +975,32 @@ static char *get_root_from_partitions(void)
 
 	fclose(fp);
 	return NULL;
+}
+
+/*
+ * Return the rootfs's device name from /proc/self/mountinfo.
+ * Needed for filesystems having synthetic stat(2) st_dev
+ * values such as BTRFS.
+ */
+static char *get_root_from_mountinfo(void)
+{
+	char *mnt_point, *device = NULL;
+	FILE *fp = fopen("/proc/self/mountinfo", "r");
+	while (fp && !feof(fp)){
+		/* format: https://www.kernel.org/doc/Documentation/filesystems/proc.txt */
+		if (fscanf(fp, "%*s %*s %*u:%*u %*s %ms %*s %*[-] %*s %ms %*s",
+			   &mnt_point, &device) == 2) {
+			if ( (!strcmp(mnt_point, "/")) && (strcmp(device, "none")) ) {
+				free(mnt_point);
+				break;
+			}
+			free(mnt_point);
+			free(device);
+		}
+		device = NULL;
+	}
+	(void)fclose(fp);
+	return device;
 }
 
 #define MAX_CMDLINE_LENGTH 4096
@@ -936,6 +1056,8 @@ char *get_root_device(void)
 	root = get_root_from_partitions();
 	if (!root)
 		root = get_root_from_cmdline();
+	if (!root)
+		root = get_root_from_mountinfo();
 
 	return root;
 }
@@ -950,6 +1072,12 @@ int read_lines_notify(int fd, char *buf, int buf_size, int *buf_offset,
 	n = read(fd, &buf[offset], buf_size - offset - 1);
 	if (n <= 0)
 		return -errno;
+
+	/* replace zeroes with @ signs */
+	for (unsigned int index = 0; index < n; index++) {
+		if (!buf[offset+index])
+			buf[offset+index] = '@';
+	}
 
 	n += offset;
 	buf[n] = '\0';
@@ -1058,8 +1186,8 @@ static bool check_free_space(int fd, long long size, char *fname)
 	}
 
 	if (statvfs.f_bfree * statvfs.f_bsize < size) {
-		ERROR("Not enough free space to extract %s (needed %llu, got %lu)",
-		       fname, size, statvfs.f_bfree * statvfs.f_bsize);
+		ERROR("Not enough free space to extract %s (needed %llu, got %llu)",
+		       fname, size, (unsigned long long)statvfs.f_bfree * statvfs.f_bsize);
 		return false;
 	}
 
