@@ -793,8 +793,10 @@ static int l_umount(lua_State *L) {
 	}
 
 	if (rmdir(target) == -1) {
-		TRACE("Unable to remove directory %s: %s", target, strerror(errno));
-		goto l_umount_exit;
+		if (errno != EROFS) {
+			TRACE("Unable to remove directory %s: %s", target, strerror(errno));
+			goto l_umount_exit;
+		}
 	}
 
 	lua_pop(L, 1);
@@ -852,7 +854,7 @@ static int l_get_bootenv(lua_State *L) {
 }
 
 static int l_set_bootenv(lua_State *L) {
-	struct dict *bootenv = (struct dict *)lua_touserdata(L, lua_upvalueindex(1));
+	struct dict *bootenv = *(struct dict**)lua_touserdata(L, lua_upvalueindex(1));
 	const char *name = luaL_checkstring(L, 1);
 	const char *value = luaL_checkstring(L, 2);
 
@@ -898,6 +900,33 @@ static int l_progress_update(lua_State *L)
 }
 #endif
 
+static void lua_push_enum(lua_State *L, const char *name, int value)
+{
+	lua_pushstring(L, name);
+	lua_pushnumber(L, (lua_Number) value );
+	lua_settable(L, -3);
+}
+
+static int l_getversion(lua_State *L)
+{
+	unsigned int version = 0, patchlevel = 0;
+	/* Deliberately ignore sublevel and extraversion. */
+	if (sscanf(SWU_VER, "%u.%u.%*s", &version, &patchlevel) != 2) {
+		version = 0;
+		patchlevel = 0;
+	}
+	lua_newtable (L);
+	lua_pushnumber(L, 1);
+	lua_pushnumber(L, version);
+	lua_settable(L, -3);
+	lua_pushnumber(L, 2);
+	lua_pushnumber(L, patchlevel);
+	lua_settable(L, -3);
+	lua_push_enum(L, "version", version);
+	lua_push_enum(L, "patchlevel", patchlevel);
+	return 1;
+}
+
 /**
  * @brief array with the function which are exported to Lua
  */
@@ -911,6 +940,7 @@ static const luaL_Reg l_swupdate[] = {
         { "mount", l_mount },
         { "umount", l_umount },
         { "getroot", l_getroot },
+        { "getversion", l_getversion },
         { NULL, NULL }
 };
 
@@ -931,13 +961,6 @@ static const luaL_Reg l_swupdate_handler[] = {
         { NULL, NULL }
 };
 #endif
-
-static void lua_push_enum(lua_State *L, const char *name, int value)
-{
-	lua_pushstring(L, name);
-	lua_pushnumber(L, (lua_Number) value );
-	lua_settable(L, -3);
-}
 
 /**
  * @brief function to register the swupdate package in the Lua Stack
@@ -960,7 +983,7 @@ static int luaopen_swupdate(lua_State *L)
 	lua_push_enum(L, "DOWNLOAD", DOWNLOAD);
 	lua_push_enum(L, "DONE", DONE);
 	lua_push_enum(L, "SUBPROCESS", SUBPROCESS);
-	lua_push_enum(L, "PROGRESS", SUBPROCESS);
+	lua_push_enum(L, "PROGRESS", PROGRESS);
 	lua_settable(L, -3);
 
 	/* export the root device type */
@@ -1034,7 +1057,8 @@ static int l_handler_wrapper(struct img_type *img, void *data) {
 			ERROR("Lua stack corrupted.");
 			return -1;
 		}
-		lua_pushlightuserdata(gL, (void *)img->bootloader);
+		struct dict **udbootenv = lua_newuserdata(gL, sizeof(struct dict*));
+		*udbootenv = img->bootloader;
 		luaL_setfuncs(gL, l_swupdate_bootenv, 1);
 		lua_pop(gL, 1);
 	}
@@ -1204,7 +1228,8 @@ lua_State *lua_parser_init(const char *buf, struct dict *bootenv)
 	lua_setglobal(L, "SWUPDATE_LUA_TYPE"); /* prime L as LUA_TYPE_PEMBSCR */
 	luaL_openlibs(L); /* opens the standard libraries */
 	luaL_requiref(L, "swupdate", luaopen_swupdate, 1 );
-	lua_pushlightuserdata(L, (void *)bootenv);
+	struct dict **udbootenv = lua_newuserdata(L, sizeof(struct dict*));
+	*udbootenv = bootenv;
 	luaL_setfuncs(L, l_swupdate_bootenv, 1);
 	lua_pop(L, 1); /* remove unused copy left on stack */
 

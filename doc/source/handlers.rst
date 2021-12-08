@@ -1,3 +1,6 @@
+.. SPDX-FileCopyrightText: 2013-2021 Stefano Babic <sbabic@denx.de>
+.. SPDX-License-Identifier: GPL-2.0-only
+
 =============================================
 Handlers
 =============================================
@@ -757,6 +760,27 @@ Properties ``size`` and ``offset`` are optional, all the other properties are ma
     |             |          | If not set, default value 0 will be used.          |
     +-------------+----------+----------------------------------------------------+
 
+
+Rawcopy handler
+---------------
+
+The rawcopy handler copies one source to a destination. It can be used to copy configuration data,
+or parts that should be taken by the current installation. It requires just one property (`copyfrom`), while
+device contains the destination path. The handler performs a byte copy, and it does not matter which is
+the source - it can be a file or a partition.
+
+
+::
+
+        scripts : (
+                {
+                device = "/dev/mmcblk2p1";
+                type = "rawcopy";
+                properties : {
+                        copyfrom = "/dev/mmcblk2p2";
+                }
+        }
+
 Disk partitioner
 ----------------
 
@@ -764,7 +788,7 @@ This handler creates or modifies partitions using the library libfdisk. Handler 
 the `partitions` section of sw-description. Setup for each partition is put into the `properties` field
 of sw-description.
 After writing the partition table it may create a file system on selected partitions.
-(Availlable only if CONFIG_DISKFORMAT is set.)
+(Available only if CONFIG_DISKFORMAT is set.)
 
 .. table:: Properties for diskpart handler
 
@@ -772,6 +796,14 @@ After writing the partition table it may create a file system on selected partit
    |  Name       |  Type    |  Description                                       |
    +=============+==========+====================================================+
    | labeltype   | string   | "gpt" or "dos"                                     |
+   +-------------+----------+----------------------------------------------------+
+   | nolock      | string   | "true" or "false" (default=false)                  |
+   |             |          | This is like a force. If it is set, a lock failure |
+   |             |          | will be ignored(lock will still be attempted).     |
+   +-------------+----------+----------------------------------------------------+
+   | noinuse     | string   | "true" or "false" (default=false)                  |
+   |             |          | If set, it does not require the device to be not   |
+   |             |          | in use (mounted, etc.)                             |
    +-------------+----------+----------------------------------------------------+
    | partition-X | array    | Array of values belonging to the partition number X|
    +-------------+----------+----------------------------------------------------+
@@ -795,10 +827,25 @@ supported:
    |             |          | It is the hex code for DOS (MBR) partition table   |
    |             |          | or it is the string identifier in case of GPT.     |
    +-------------+----------+----------------------------------------------------+
+   | dostype     | string   | Type of DOS (MBR) partition entry when using a     |
+   |             |          | table with a "gpt" labeltype.                      |
+   |             |          | Using this option will create a hybrid MBR table.  |
+   |             |          | It is the hex code for DOS (MBR) partition table.  |
+   |             |          | This would typically be used when one wants to use |
+   |             |          | a GPT formatted disk with a board that requires a  |
+   |             |          | dos table entry for initial bootstrapping.         |
+   |             |          | Note: A maximum of 3 partitions can have a dostype |
+   |             |          | specified, this limit only applies to dos table    |
+   |             |          | entries and does not affect partitions without a   |
+   |             |          | dostype specified.                                 |
+   +-------------+----------+----------------------------------------------------+
    | fstype      | string   | Optional filesystem type to be created on the      |
    |             |          | partition. If no fstype key is given, no file      |
    |             |          | will be created on the corresponding partition.    |
    |             |          | vfat / ext2 / ext3 /ext4 file system is supported  |
+   +-------------+----------+----------------------------------------------------+
+   | partuuid    | string   | The partition UUID (GPT only). If omitted, a UUID  |
+   |             |          | will be generated automatically.			 |
    +-------------+----------+----------------------------------------------------+
 
 
@@ -849,6 +896,28 @@ MBR Example:
 	   }
 	}
 
+Diskformat Handler
+------------------
+
+This handler checks if the device already has a file system of the specified
+type. (Available only if CONFIG_DISKFORMAT is set.)
+If the file system does not yet exist, it will be created.
+In case an existing file system shall be overwitten, this can be achieved
+by setting the property ``force`` to ``true``.
+
+::
+
+	partitions: (
+	{
+		type = "diskformat";
+		device = "/dev/loop0p1";
+
+		properties: {
+			fstype = "vfat";
+			force = "true";
+		}
+	})
+
 Unique UUID Handler
 -------------------
 
@@ -870,3 +939,89 @@ found on the device. It is a partition handler and it runs before any image is i
                                    "18e12df1-d8e1-4283-8727-37727eb4261d"];
 		}
 	});
+
+Delta Update Handler
+--------------------
+
+The handler processes a ZCHUNK header and finds which chunks should be downloaded
+after generating the corresponding header of the running artifact to be updated.
+The handler uses just a couple of attributes from the main setup, and gets more information
+from the properties. The attributes are then passed to a secondary handler that
+will install the artefact after the delta handler has assembled it.
+The handler requires ZST because this is the compression format for Zchunk.
+
+The SWU must just contain the ZCK's header, while the ZCK file is put as it is on the server.
+The utilities in Zchunk project are used to build the zck file.
+
+::
+
+        zck -u -h sha256 <artifact>
+
+This will generates a file <arifact>.zck. To extract the header, use the `zck_read_header`
+utility:
+
+::
+
+        HSIZE=`zck_read_header -v <artifact>.zck | grep "Header size" | cut -d':' -f2`
+        dd if=<artifact>.zck of=<artifact>.header bs=1 count=$((HSIZE))
+
+The resulting header file must be packed inside the SWU.
+
+.. table:: Properties for delta update handler
+
+   +-------------+-------------+----------------------------------------------------+
+   |  Name       |  Type       |  Description                                       |
+   +=============+=============+====================================================+
+   | url         | string      | This is the URL from where the handler will        |
+   |             |             | download the missing chunks.                       |
+   |             |             | The server must support byte range header.         |
+   +-------------+-------------+----------------------------------------------------+
+   | source      | string      | name of the device or file to be used for          |
+   |             |             | the comparison.                                    |
+   +-------------+-------------+----------------------------------------------------+
+   | chain       | string      | this is the name (type) of the handler             |
+   |             |             | that is called after reassembling                  |
+   |             |             | the artifact.                                      |
+   +-------------+-------------+----------------------------------------------------+
+   | max-ranges  | string      | Max number of ranges that a server can             |
+   |             |             | accept. Default value (150) should be ok           |
+   |             |             | for most servers.                                  |
+   +-------------+-------------+----------------------------------------------------+
+   | zckloglevel | string      | this sets the log level of the zcklib.             |
+   |             |             | Logs are intercepted by SWupdate and               |
+   |             |             | appear in SWUpdate's log.                          |
+   |             |             | Value is one of debug,info                         |
+   |             |             | warn,error,none                                    |
+   +-------------+-------------+----------------------------------------------------+
+   | debug-chunks| string      | "true", default is not set.                        |
+   |             |             | This activates more verbose debugging              |
+   |             |             | output and the list of all chunks is               |
+   |             |             | printed, and it reports if a chunk                 |
+   |             |             | is downloaded  or copied from the source.          |
+   +-------------+-------------+----------------------------------------------------+
+   | source-size | string      | This limits the index of the source                |
+   |             |             | It is helpful in case of filesystem in much        |
+   |             |             | bigger partition. It has the value for the size    |
+   |             |             | or it can be set to "detect" and the handler       |
+   |             |             | will try to find the effective size of fs.         |
+   +-------------+-------------+----------------------------------------------------+
+
+
+Example:
+
+::
+
+        {
+                filename = "software.header";
+                type = "delta";
+
+                device = "/dev/mmcblk0p2";
+                properties: {
+                        url = "http://examples.com/software.zck";
+                        chain = "raw";
+                        source = "/dev/mmcblk0p3";
+                        zckloglevel = "error";
+                        /* debug-chunks = "true"; */
+                };
+        }
+

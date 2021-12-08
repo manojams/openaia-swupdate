@@ -23,7 +23,6 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <ftw.h>
 
 #include "bsdqueue.h"
 #include "cpiohdr.h"
@@ -42,6 +41,7 @@
 #include "network_ipc.h"
 #include "sslapi.h"
 #include "suricatta/suricatta.h"
+#include "delta_process.h"
 #include "progress.h"
 #include "parselib.h"
 #include "swupdate_settings.h"
@@ -70,21 +70,22 @@ struct flash_description *get_flash_info(void) {
 #endif
 
 static struct option long_options[] = {
-	{"verbose", no_argument, NULL, 'v'},
-	{"version", no_argument, NULL, '0'},
-	{"image", required_argument, NULL, 'i'},
-	{"file", required_argument, NULL, 'f'},
-	{"loglevel", required_argument, NULL, 'l'},
-	{"syslog", no_argument, NULL, 'L' },
-	{"select", required_argument, NULL, 'e'},
 	{"accepted-select", required_argument, NULL, 'q'},
-	{"output", required_argument, NULL, 'o'},
+#ifdef CONFIG_UBIATTACH
+	{"blacklist", required_argument, NULL, 'b'},
+#endif
+	{"check", no_argument, NULL, 'c'},
+#ifdef CONFIG_DOWNLOAD
+	{"download", required_argument, NULL, 'd'},
+#endif
 	{"dry-run", no_argument, NULL, 'n'},
-	{"no-downgrading", required_argument, NULL, 'N'},
-	{"no-reinstalling", required_argument, NULL, 'R'},
-	{"max-version", required_argument, NULL, '3'},
-	{"no-transaction-marker", no_argument, NULL, 'M'},
-	{"no-state-marker", no_argument, NULL, 'm'},
+	{"file", required_argument, NULL, 'f'},
+	{"get-root", no_argument, NULL, 'g'},
+	{"help", no_argument, NULL, 'h'},
+#ifdef CONFIG_HW_COMPATIBILITY
+	{"hwrevision", required_argument, NULL, 'H'},
+#endif
+	{"image", required_argument, NULL, 'i'},
 #ifdef CONFIG_SIGNED_IMAGES
 	{"key", required_argument, NULL, 'k'},
 	{"ca-path", required_argument, NULL, 'k'},
@@ -94,25 +95,25 @@ static struct option long_options[] = {
 #ifdef CONFIG_ENCRYPTED_IMAGES
 	{"key-aes", required_argument, NULL, 'K'},
 #endif
-#ifdef CONFIG_UBIATTACH
-	{"blacklist", required_argument, NULL, 'b'},
-#endif
-	{"help", no_argument, NULL, 'h'},
-#ifdef CONFIG_HW_COMPATIBILITY
-	{"hwrevision", required_argument, NULL, 'H'},
-#endif
-#ifdef CONFIG_DOWNLOAD
-	{"download", required_argument, NULL, 'd'},
-#endif
+	{"loglevel", required_argument, NULL, 'l'},
+	{"max-version", required_argument, NULL, '3'},
+	{"no-downgrading", required_argument, NULL, 'N'},
+	{"no-reinstalling", required_argument, NULL, 'R'},
+	{"no-state-marker", no_argument, NULL, 'm'},
+	{"no-transaction-marker", no_argument, NULL, 'M'},
+	{"output", required_argument, NULL, 'o'},
+	{"preupdate", required_argument, NULL, 'P'},
+	{"postupdate", required_argument, NULL, 'p'},
+	{"select", required_argument, NULL, 'e'},
 #ifdef CONFIG_SURICATTA
 	{"suricatta", required_argument, NULL, 'u'},
 #endif
+	{"syslog", no_argument, NULL, 'L' },
+	{"verbose", no_argument, NULL, 'v'},
+	{"version", no_argument, NULL, '0'},
 #ifdef CONFIG_WEBSERVER
 	{"webserver", required_argument, NULL, 'w'},
 #endif
-	{"check", no_argument, NULL, 'c'},
-	{"postupdate", required_argument, NULL, 'p'},
-	{"preupdate", required_argument, NULL, 'P'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -244,53 +245,6 @@ static int parse_image_selector(const char *selector, struct swupdate_cfg *sw)
 	return 0;
 }
 
-static void create_directory(const char* path) {
-	char* dpath;
-	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
-		ENOMEM_ASPRINTF) {
-		ERROR("OOM: Directory %s not created", path);
-		return;
-	}
-	if (mkdir(dpath, 0777)) {
-		WARN("Directory %s cannot be created due to : %s",
-		     path, strerror(errno));
-	}
-	free(dpath);
-}
-
-#ifndef CONFIG_NOCLEANUP
-static int _remove_directory_cb(const char *fpath, const struct stat *sb,
-                                int typeflag, struct FTW *ftwbuf)
-{
-	(void)sb;
-	(void)typeflag;
-	(void)ftwbuf;
-	return remove(fpath);
-}
-
-static int remove_directory(const char* path)
-{
-	char* dpath;
-	int ret;
-	if (asprintf(&dpath, "%s%s", get_tmpdir(), path) ==
-		ENOMEM_ASPRINTF) {
-		ERROR("OOM: Directory %s not removed", path);
-		return -ENOMEM;
-	}
-	ret = nftw(dpath, _remove_directory_cb, 64, FTW_DEPTH | FTW_PHYS);
-	free(dpath);
-	return ret;
-}
-#endif
-
-static void swupdate_cleanup(void)
-{
-#ifndef CONFIG_NOCLEANUP
-	remove_directory(SCRIPTS_DIR_SUFFIX);
-	remove_directory(DATADST_DIR_SUFFIX);
-#endif
-}
-
 static void swupdate_init(struct swupdate_cfg *sw)
 {
 	/* Initialize internal tree to store configuration */
@@ -302,15 +256,6 @@ static void swupdate_init(struct swupdate_cfg *sw)
 	LIST_INIT(&sw->bootloader);
 	LIST_INIT(&sw->extprocs);
 	sw->cert_purpose = SSL_PURPOSE_DEFAULT;
-
-
-	/* Create directories for scripts */
-	create_directory(SCRIPTS_DIR_SUFFIX);
-	create_directory(DATADST_DIR_SUFFIX);
-
-	if (atexit(swupdate_cleanup) != 0) {
-		TRACE("Cannot setup SWUpdate cleanup on exit");
-	}
 
 #ifdef CONFIG_MTD
 	mtd_init();
@@ -425,6 +370,10 @@ static int read_processes_settings(void *settings, void *data)
 			continue;
 
 		proc = (struct extproc *)calloc(1, sizeof(struct extproc));
+		if (!proc) {
+			ERROR("OOM reading process settings, exiting...");
+			exit(EXIT_FAILURE);
+		}
 
 		GET_FIELD_STRING(LIBCFG_PARSER, elem, "name", proc->name);
 		GET_FIELD_STRING(LIBCFG_PARSER, elem, "exec", proc->exec);
@@ -486,7 +435,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:q:l:Lcf:p:P:o:N:R:Mm");
+	strcpy(main_options, "vhni:e:gq:l:Lcf:p:P:o:N:R:Mm");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -529,8 +478,17 @@ int main(int argc, char **argv)
 	while ((c = getopt_long(argc, argv, main_options,
 				long_options, NULL)) != EOF) {
 		switch (c) {
+		char *root;
 		case 'f':
 			cfgfname = sdup(optarg);
+			break;
+		case 'g':
+			root = get_root_device();
+			if (root) {
+				printf("%s\n", root);
+				free(root);
+			}
+			exit(EXIT_SUCCESS);
 			break;
 		case 'l':
 			loglevel = strtoul(optarg, NULL, 10);
@@ -896,6 +854,17 @@ int main(int argc, char **argv)
 		freeargs(dwlav);
 	}
 #endif
+#if defined(CONFIG_DELTA)
+	{
+		uid_t uid;
+		gid_t gid;
+		read_settings_user_id(&handle, "download", &uid, &gid);
+		start_subprocess(SOURCE_CHUNKS_DOWNLOADER, "chunks_downloader", uid, gid,
+				cfgfname, ac, av,
+				start_delta_downloader);
+	}
+#endif
+
 
 	/*
 	 * Start all processes added in the config file

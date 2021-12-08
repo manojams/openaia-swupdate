@@ -48,8 +48,12 @@ static int install_boot_environment(struct img_type *img,
 	ret = stat(filename, &statbuf);
 	if (ret) {
 		fdout = openfileoutput(filename);
+		if (fdout < 0)
+			return fdout;
 		ret = copyimage(&fdout, img, NULL);
 		close(fdout);
+		if (ret < 0)
+			return ret;
 	}
 
 	/*
@@ -111,7 +115,7 @@ static int install_boot_environment(struct img_type *img,
 				}
 			}
 		}
-		free(pair);
+		free_string_array(pair);
 	}
 	/*
 	 * this handler does not use copyfile()

@@ -108,7 +108,7 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 		close(fdout);
 		return -1;
 	}
-	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+	if (!swupdate_verify_chksum(checksum, &fdh)) {
 		close(fdout);
 		return -1;
 	}
@@ -222,13 +222,15 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				fdout = openfileoutput(img->extract_file);
 				if (fdout < 0)
 					return -1;
-				if (!img_check_free_space(img, fdout))
+				if (!img_check_free_space(img, fdout)) {
+					close(fdout);
 					return -1;
+				}
 				if (copyfile(fd, &fdout, fdh.size, &offset, 0, 0, 0, &checksum, img->sha256, false, NULL, NULL) < 0) {
 					close(fdout);
 					return -1;
 				}
-				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+				if (!swupdate_verify_chksum(checksum, &fdh)) {
 					close(fdout);
 					return -1;
 				}
@@ -239,7 +241,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				if (copyfile(fd, &fdout, fdh.size, &offset, 0, skip, 0, &checksum, NULL, false, NULL, NULL) < 0) {
 					return -1;
 				}
-				if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+				if (!swupdate_verify_chksum(checksum, &fdh)) {
 					return -1;
 				}
 				break;
@@ -399,7 +401,7 @@ static int save_stream(int fdin, struct swupdate_cfg *software)
 		ret = -EFAULT;
 		goto no_copy_output;
 	}
-	if (get_cpiohdr(buf, &fdh.size, &fdh.namesize, &fdh.chksum) < 0) {
+	if (get_cpiohdr(buf, &fdh) < 0) {
 		ERROR("CPIO Header corrupted, cannot be parsed");
 		ret = -EINVAL;
 		goto no_copy_output;
@@ -523,6 +525,10 @@ void *network_initializer(void *data)
 		notify(START, RECOVERY_NO_ERROR, INFOLEVEL, "Software Update started !");
 		TRACE("Software update started");
 
+		/* Create directories for scripts/datadst */
+		swupdate_create_directory(SCRIPTS_DIR_SUFFIX);
+		swupdate_create_directory(DATADST_DIR_SUFFIX);
+
 		req = &inst.req;
 
 		/*
@@ -570,6 +576,10 @@ void *network_initializer(void *data)
 			if (!(inst.fd < 0))
 				close(inst.fd);
 			inst.fd = open(software->output, O_RDONLY,  S_IRUSR);
+			if (inst.fd < 0) {
+				ERROR("%s cannot be opened", software->output);
+				ret = -ENODEV;
+			}
 		}
 
 		if (!ret) {
@@ -643,14 +653,19 @@ void *network_initializer(void *data)
 		 */
 		software->parms = parms;
 
+		/* release temp files we may have created */
+		cleanup_files(software);
+
+#ifndef CONFIG_NOCLEANUP
+		swupdate_remove_directory(SCRIPTS_DIR_SUFFIX);
+		swupdate_remove_directory(DATADST_DIR_SUFFIX);
+#endif
+
 		pthread_mutex_lock(&stream_mutex);
 		inst.status = IDLE;
 		pthread_mutex_unlock(&stream_mutex);
 		TRACE("Main thread sleep again !");
 		notify(IDLE, RECOVERY_NO_ERROR, INFOLEVEL, "Waiting for requests...");
-
-		/* release temp files we may have created */
-		cleanup_files(software);
 	}
 
 	pthread_exit((void *)0);

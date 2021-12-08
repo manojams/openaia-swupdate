@@ -29,25 +29,30 @@
 
 #define NPAD_BYTES(o) ((4 - (o % 4)) % 4)
 
-int get_cpiohdr(unsigned char *buf, unsigned long *size,
-			unsigned long *namesize, unsigned long *chksum)
+typedef enum {
+	INPUT_FROM_FD,
+	INPUT_FROM_MEMORY
+} input_type_t;
+
+int get_cpiohdr(unsigned char *buf, struct filehdr *fhdr)
 {
 	struct new_ascii_header *cpiohdr;
 
-	if (!buf)
+	if (!buf || !fhdr)
 		return -EINVAL;
 
 	cpiohdr = (struct new_ascii_header *)buf;
-#ifdef CONFIG_DISABLE_CPIO_CRC
-	if (strncmp(cpiohdr->c_magic, "070701", 6) != 0)
-#endif
-	if (strncmp(cpiohdr->c_magic, "070702", 6) != 0) {
+	if (!strncmp(cpiohdr->c_magic, "070701", 6))
+		fhdr->format = CPIO_NEWASCII;
+	else if (!strncmp(cpiohdr->c_magic, "070702", 6))
+		fhdr->format = CPIO_CRCASCII;
+	else {
 		ERROR("CPIO Format not recognized: magic not found");
-			return -EINVAL;
+		return -EINVAL;
 	}
-	*size = FROM_HEX(cpiohdr->c_filesize);
-	*namesize = FROM_HEX(cpiohdr->c_namesize);
-	*chksum =  FROM_HEX(cpiohdr->c_chksum);
+	fhdr->size = FROM_HEX(cpiohdr->c_filesize);
+	fhdr->namesize = FROM_HEX(cpiohdr->c_namesize);
+	fhdr->chksum = FROM_HEX(cpiohdr->c_chksum);
 
 	return 0;
 }
@@ -120,8 +125,10 @@ int copy_write(void *out, const void *buf, unsigned int len)
 	int ret;
 	int fd;
 
-	if (!out)
+	if (!out) {
+		ERROR("Output file descriptor invalid !");
 		return -1;
+	}
 
 	fd = *(int *)out;
 
@@ -187,6 +194,9 @@ typedef int (*PipelineStep)(void *state, void *buffer, size_t size);
 struct InputState
 {
 	int fdin;
+	input_type_t source;
+	unsigned char *inbuf;
+	size_t pos;
 	unsigned int nbytes;
 	unsigned long *offs;
 	void *dgst;	/* use a private context for HASH */
@@ -196,12 +206,26 @@ struct InputState
 static int input_step(void *state, void *buffer, size_t size)
 {
 	struct InputState *s = (struct InputState *)state;
+	int ret = 0;
 	if (size >= s->nbytes) {
 		size = s->nbytes;
 	}
-	int ret = fill_buffer(s->fdin, buffer, size, s->offs, &s->checksum, s->dgst);
-	if (ret < 0) {
-		return ret;
+	switch (s->source) {
+	case INPUT_FROM_FD:
+		ret = fill_buffer(s->fdin, buffer, size, s->offs, &s->checksum, s->dgst);
+		if (ret < 0) {
+			return ret;
+		}
+		break;
+	case INPUT_FROM_MEMORY:
+		memcpy(buffer, &s->inbuf[s->pos], size);
+		if (s->dgst) {
+			if (swupdate_HASH_update(s->dgst, &s->inbuf[s->pos], size) < 0)
+				return -EFAULT;
+		}
+		ret = size;
+		s->pos += size;
+		break;
 	}
 	s->nbytes -= ret;
 	return ret;
@@ -380,7 +404,7 @@ static int zstd_step(void* state, void* buffer, size_t size)
 
 #endif
 
-int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsigned long long seek,
+static int __swupdate_copy(int fdin, unsigned char *inbuf, void *out, unsigned int nbytes, unsigned long *offs, unsigned long long seek,
 	int skip_file, int __attribute__ ((__unused__)) compressed,
 	uint32_t *checksum, unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback)
 {
@@ -398,6 +422,9 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 
 	struct InputState input_state = {
 		.fdin = fdin,
+		.source = INPUT_FROM_FD,
+		.inbuf = NULL,
+		.pos = 0,
 		.nbytes = nbytes,
 		.offs = offs,
 		.dgst = NULL,
@@ -434,6 +461,14 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 	};
 #endif
 #endif
+
+	/*
+	 * If inbuf is set, read from buffer instead of from file
+	 */
+	if (inbuf) {
+		input_state.inbuf = inbuf;
+		input_state.source = INPUT_FROM_MEMORY;
+	}
 
 	PipelineStep step = NULL;
 	void *state = NULL;
@@ -604,7 +639,11 @@ int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsi
 		}
 	}
 
-	fill_buffer(fdin, buffer, NPAD_BYTES(*offs), offs, checksum, NULL);
+	if (!inbuf) {
+		ret = fill_buffer(fdin, buffer, NPAD_BYTES(*offs), offs, checksum, NULL);
+		if (ret < 0)
+			DEBUG("Padding bytes are not read, ignoring");
+	}
 
 	if (checksum != NULL) {
 		*checksum = input_state.checksum;
@@ -633,6 +672,43 @@ copyfile_exit:
 	return ret;
 }
 
+int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs, unsigned long long seek,
+	int skip_file, int __attribute__ ((__unused__)) compressed,
+	uint32_t *checksum, unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback)
+{
+	return __swupdate_copy(fdin,
+				NULL,
+				out,
+				nbytes,
+				offs,
+				seek,
+				skip_file,
+				compressed,
+				checksum,
+				hash,
+				encrypted,
+				imgivt,
+				callback);
+}
+
+int copybuffer(unsigned char *inbuf, void *out, unsigned int nbytes, int __attribute__ ((__unused__)) compressed,
+	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback)
+{
+	return __swupdate_copy(-1,
+				inbuf,
+				out,
+				nbytes,
+				NULL,
+				0,
+				0,
+				compressed,
+				NULL,
+				hash,
+				encrypted,
+				imgivt,
+				callback);
+}
+
 int copyimage(void *out, struct img_type *img, writeimage callback)
 {
 	return copyfile(img->fdin,
@@ -654,7 +730,7 @@ int extract_cpio_header(int fd, struct filehdr *fhdr, unsigned long *offset)
 	unsigned char buf[sizeof(fhdr->filename)];
 	if (fill_buffer(fd, buf, sizeof(struct new_ascii_header), offset, NULL, NULL) < 0)
 		return -EINVAL;
-	if (get_cpiohdr(buf, &fhdr->size, &fhdr->namesize, &fhdr->chksum) < 0) {
+	if (get_cpiohdr(buf, fhdr) < 0) {
 		ERROR("CPIO Header corrupted, cannot be parsed");
 		return -EINVAL;
 	}
@@ -737,7 +813,7 @@ off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 		(unsigned long)checksum,
 		(checksum == fdh.chksum) ? "VERIFIED" : "WRONG");
 
-	if (!swupdate_verify_chksum(checksum, fdh.chksum)) {
+	if (!swupdate_verify_chksum(checksum, &fdh)) {
 		return -EINVAL;
 	}
 
@@ -781,7 +857,7 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 			return -1;
 		}
 
-		if (!swupdate_verify_chksum(fdh.chksum, checksum)) {
+		if (!swupdate_verify_chksum(checksum, &fdh)) {
 			return -1;
 		}
 
@@ -794,4 +870,15 @@ int cpio_scan(int fd, struct swupdate_cfg *cfg, off_t start)
 	}
 
 	return 0;
+}
+
+bool swupdate_verify_chksum(const uint32_t chk1, struct filehdr *fhdr) {
+	bool ret = (chk1 == fhdr->chksum);
+	if (fhdr->format == CPIO_NEWASCII)
+		return true;
+	if (!ret) {
+		ERROR("Checksum WRONG ! Computed 0x%ux, it should be 0x%ux",
+			chk1, (uint32_t)fhdr->chksum);
+	}
+	return ret;
 }

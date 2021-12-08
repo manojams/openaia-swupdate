@@ -65,6 +65,7 @@ static struct option long_options[] = {
     {"retry", required_argument, NULL, 'r'},
     {"retrywait", required_argument, NULL, 'w'},
     {"cache", required_argument, NULL, '2'},
+    {"max-download-speed", required_argument, NULL, 'n'},
     {NULL, 0, NULL, 0}};
 
 static unsigned short mandatory_argument_count = 0;
@@ -108,7 +109,10 @@ static channel_data_t channel_data_defaults = {.debug = false,
 #ifdef CONFIG_SURICATTA_SSL
 					       .usessl = true,
 #endif
+					       .noipc = false,
+					       .headers = NULL,
 					       .format = CHANNEL_PARSE_NONE,
+					       .range = NULL,
 					       .nocheckanswer = true,
 					       .nofollow = true,
 					       .strictssl = true};
@@ -196,7 +200,7 @@ static char *server_format_log(const char *event, struct dict *fmtevents,
 	fmt = strdup(tmp);
 	token = strtok_r(fmt, ",", &saveptr);
 
-	fdate = swupdate_time_iso8601();
+	fdate = swupdate_time_iso8601(NULL);
 
 	while (token) {
 		char *field;
@@ -405,6 +409,9 @@ static server_op_res_t map_http_retcode(channel_op_res_t response)
 	switch (response) {
 	case CHANNEL_ENONET:
 	case CHANNEL_EAGAIN:
+	case CHANNEL_ESSLCERT:
+	case CHANNEL_ESSLCONNECT:
+	case CHANNEL_REQUEST_PENDING:
 		return SERVER_EAGAIN;
 	case CHANNEL_EACCES:
 		return SERVER_EACCES;
@@ -453,8 +460,9 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 	 */
 	channel_data->url= server_prepare_query(server_general.url, &server_general.configdata);
 
-	LIST_INIT(&server_general.httpheaders);
-	channel_data->headers = &server_general.httpheaders;
+	LIST_INIT(&server_general.received_httpheaders);
+	LIST_INIT(&server_general.httpheaders_to_send);
+	channel_data->received_headers = &server_general.received_httpheaders;
 
 	result = map_http_retcode(channel->get(channel, (void *)channel_data));
 
@@ -462,12 +470,12 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 		free(channel_data->url);
 	}
 
-	pollstring = dict_get_value(&server_general.httpheaders, "Retry-After");
+	pollstring = dict_get_value(&server_general.received_httpheaders, "Retry-After");
 	if (pollstring) {
 		server_set_polling_interval(pollstring);
 	}
 
-	dict_drop_db(&server_general.httpheaders);
+	dict_drop_db(&server_general.received_httpheaders);
 
 	return result;
 }
@@ -522,7 +530,11 @@ void server_print_help(void)
 	    "\t  -w, --retrywait     Time to wait prior to retry and "
 	    "resume a download (default: %ds).\n"
 	    "\t  -y, --proxy         Use proxy. Either give proxy URL, else "
-	    "{http,all}_proxy env is tried.\n",
+	    "{http,all}_proxy env is tried.\n"
+	    "\t  -a, --custom-http-header <name> <value> Set custom HTTP header, "
+	    "appended to every HTTP request being sent."
+	    "\t  -n, --max-download-speed <limit>	Set download speed limit."
+		"Example: -n 100k; -n 1M; -n 100; -n 1G",
 	    CHANNEL_DEFAULT_POLLING_INTERVAL, CHANNEL_DEFAULT_RESUME_TRIES,
 	    CHANNEL_DEFAULT_RESUME_DELAY);
 }
@@ -539,7 +551,7 @@ server_op_res_t server_install_update(void)
 
 	channel_data.nofollow = false;
 	channel_data.nocheckanswer = false;
-	channel_data.checkdwl = NULL;
+	channel_data.dwlwrdata = NULL;
 
 	channel_data.url = strdup(url);
 
@@ -608,6 +620,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	int choice = 0;
 
 	LIST_INIT(&server_general.configdata);
+	LIST_INIT(&server_general.httpheaders_to_send);
 
 	if (fname) {
 		swupdate_cfg_handle handle;
@@ -626,7 +639,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	/* reset to optind=1 to parse suricatta's argument vector */
 	optind = 1;
 	opterr = 0;
-	while ((choice = getopt_long(argc, argv, "u:l:r:w:p:2:",
+	while ((choice = getopt_long(argc, argv, "u:l:r:w:p:2:a:n",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case 'u':
@@ -651,8 +664,23 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		case '2':
 			SETSTRING(server_general.cached_file, optarg);
 			break;
-		/* Ignore not recognized options, they can be already parsed by the caller */
+		case 'a':
+			if (optind >= argc)
+				return SERVER_EINIT;
+
+			if (dict_insert_value(&server_general.httpheaders_to_send,
+						optarg,
+						argv[optind++]) < 0)
+				return SERVER_EINIT;
+
+			break;
+		case 'n':
+			channel_data_defaults.max_download_speed =
+				(unsigned int)ustrtoull(optarg, 10);
+			break;
+
 		case '?':
+		/* Ignore not recognized options, they can be already parsed by the caller */
 		default:
 			break;
 		}
@@ -663,6 +691,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		suricatta_print_help();
 		return SERVER_EINIT;
 	}
+
+	channel_data_defaults.headers_to_send = &server_general.httpheaders_to_send;
 
 	if (channel_curl_init() != CHANNEL_OK)
 		return SERVER_EINIT;

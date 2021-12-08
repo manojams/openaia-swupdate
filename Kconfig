@@ -61,6 +61,10 @@ config HAVE_LIBEBGENV
 	bool
 	option env="HAVE_LIBEBGENV"
 
+config HAVE_LIBEXT2FS
+	bool
+	option env="HAVE_LIBEXT2FS"
+
 config HAVE_LIBZEROMQ
 	bool
 	option env="HAVE_LIBZEROMQ"
@@ -76,6 +80,10 @@ config HAVE_ZSTD
 config HAVE_LIBSSL
 	bool
 	option env="HAVE_LIBSSL"
+
+config HAVE_LIBSYSTEMD
+	bool
+	option env="HAVE_LIBSYSTEMD"
 
 config HAVE_LIBCRYPTO
 	bool
@@ -101,9 +109,17 @@ config HAVE_LIBWEBSOCKETS
 	bool
 	option env="HAVE_LIBWEBSOCKETS"
 
+config HAVE_LIBRSYNC
+	bool
+	option env="HAVE_LIBRSYNC"
+
 config HAVE_URIPARSER
 	bool
 	option env="HAVE_URIPARSER"
+
+config HAVE_ZCK
+	bool
+	option env="HAVE_ZCK"
 
 menu "Swupdate Settings"
 
@@ -117,13 +133,21 @@ config CURL_SSL
 	bool
 	default n
 
+config DISKFORMAT
+	bool
+	default n
+
 config SYSTEMD
 	bool "enable systemd support"
 	depends on HAVE_LINUX
+	depends on HAVE_LIBSYSTEMD
 	default n
 	help
 	  Enable support for systemd's start-up completion
 	  notification and socket-based activation features.
+
+comment "systemd support needs libsystemd"
+	depends on !HAVE_LIBSYSTEMD && HAVE_LINUX
 
 config DEFAULT_CONFIG_FILE
 	string "File with default settings"
@@ -208,6 +232,7 @@ endmenu
 config MTD
 	bool "MTD support"
 	default y
+	depends on HAVE_LINUX
 	depends on HAVE_LIBMTD
 	help
 	  Enable MTD support.
@@ -402,21 +427,6 @@ config HASH_VERIFY
 comment "Hash checking needs an SSL implementation"
 	depends on !SSL_IMPL_OPENSSL && !SSL_IMPL_WOLFSSL && !SSL_IMPL_MBEDTLS
 
-config DISABLE_CPIO_CRC
-	bool "Disable cpio CRC verify if SHA 256 is enabled"
-	depends on HASH_VERIFY
-	default n
-	help
-	  Disable CRC check in cpio header if sha256 is enabled.
-	  CRC in CPIO is not a real crc, but it is simply the sum
-	  of all bytes belonging to a file as 32 bit value. It is
-	  very weak and does not add any further safety if sha256
-	  is activated. CPIO in Linux distros has also a bug and
-	  CRC field is set to 0 when a file is larger as 2GB.
-
-	  SWUpdate supports the newc cpio format if this is
-	  selected. That format does not have a checksum.
-
 config SIGNED_IMAGES
 	bool "Enable verification of signed images"
 	depends on SSL_IMPL_OPENSSL || SSL_IMPL_WOLFSSL || SSL_IMPL_MBEDTLS
@@ -453,6 +463,10 @@ config CMS_IGNORE_EXPIRED_CERTIFICATE
 
 config CMS_IGNORE_CERTIFICATE_PURPOSE
 	bool "Ignore X.509 certificate purpose"
+	depends on SIGALG_CMS
+
+config CMS_SKIP_UNKNOWN_SIGNERS
+	bool "Ignore unverifiable signatures if known signer verifies"
 	depends on SIGALG_CMS
 endmenu
 
