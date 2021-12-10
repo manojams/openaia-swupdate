@@ -1,10 +1,16 @@
-swupdate (2021.11-1) UNRELEASED; urgency=medium
+swupdate (2021.11-1) unstable; urgency=medium
 
   * Add option to build with efibootguard
   * New upstream version 2021.11
   * Drop old and add new executables/manpages
+  * Add new library symbols
+  * Get conditional alternative build deps right
+  * d/copyright: Amend with info from .reuse/dep5
+  * d/copyright: Add missing license OFL-1.1
+  * d/copyright: Amend with new version's changes
+  * Enable diskformat handler and diskpart extension
 
- -- Bastian Germann <bage@debian.org>  Wed, 08 Dec 2021 22:45:33 +0100
+ -- Bastian Germann <bage@debian.org>  Fri, 10 Dec 2021 23:55:38 +0100
 
 swupdate (2021.04-2) unstable; urgency=medium
 
