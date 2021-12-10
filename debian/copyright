@@ -4,7 +4,7 @@ Upstream-Contact: Stefano Babic <sbabic@denx.de>
 Source: https://github.com/sbabic/swupdate
 
 Files:     *
-Copyright: 2013-2020 Stefano Babic <sbabic@denx.de>
+Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
 License:   GPL-2
 
 Files:     .editorconfig
@@ -13,9 +13,17 @@ License:   CC0-1.0
 
 Files:     .gitignore
            configs/*
+           examples/configuration/swupdate.cfg
+           examples/description/*
+           examples/lua-xml/*
+           examples/scripts/*
            handlers/lua/*
-Copyright: 2013, 2014, 2021 Stefano Babic <sbabic@denx.de>
+Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
 License:   CC0-1.0
+
+Files:     .gitlab-ci.yml
+Copyright: 2021 Siemens AG
+License:   MIT
 
 Files:     bootloader/grub.*
 Copyright: 2017, 3mdeb
@@ -59,6 +67,11 @@ Files:     core/swupdate_dict.c
 Copyright: 2016 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
            2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
 License:   GPL-2
+
+Files:     corelib/multipart_parser.c
+           include/multipart_parser.h
+Copyright: 2012 Igor Afonov afonov@gmail.com
+License:   MIT
 
 Files:     fs/*
 Copyright: 2021 Weidmueller Interface GmbH & Co. KG
@@ -214,6 +227,10 @@ Files:     scripts/kconfig/streamline_config.pl
 Copyright: 2005-2009 Steven Rostedt
 License:   GPL-2
 
+Files:     handlers/diskformat_handler.c
+Copyright: 2021 Weidmueller Interface GmbH & Co. KG
+License:   GPL-2
+
 Files:     handlers/flash_hamming1_handler.c
            handlers/flash_handler.c
 Copyright: 2011 ISEE 2007 SL, Javier Martinez Canillas <martinez.javier@gmail.com>
@@ -246,6 +263,19 @@ License:   GPL-3+ WITH BISON EXCEPTION
 Files:     include/bsdqueue.h
 Copyright: 1991, 1993 The Regents of the University of California
 License:   BSD-3-Clause
+
+Files:     tools/swupdate-ipc.c
+Copyright: 2021 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
+License:   GPL-2
+
+Files:     examples/client/*
+Copyright: 2021 Blueye Robotics AS
+License:   GPL-2
+
+Files:     examples/client/swupdate_client.py
+Copyright: 2018 Stefano Babic <sbabic@denx.de>
+           2021 Blueye Robotics AS
+License:   GPL-2
 
 Files: examples/www/v2/css/fontawesome.min.css
 Copyright: 2019 Font Awesome
@@ -323,13 +353,17 @@ Files: doc/source/images/*
 Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
 License: GPL-2
 
+Files:     handlers/zchunk_range.c
+Copyright: 2021 Stefano Babic, sbabic@denx.de.
+           2018 Jonathan Dieter <jdieter@gmail.com>
+License:   GPL-2
+
 Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
            2020, 2021 Bastian Germann
 License:   GPL-2+
 
-Files:     .travis.yml
-           debian/swupdate.init
+Files:     debian/swupdate.init
            debian/swupdate*.service
            debian/swupdate.udev
            debian/swupdate.sh
