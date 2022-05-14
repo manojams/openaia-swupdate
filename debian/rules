@@ -20,6 +20,7 @@ endif
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
 ifeq (linux,$(DEB_BUILD_ARCH_OS))
+	echo CONFIG_UCFWHANDLER=y          >> configs/debian_defconfig
 	echo CONFIG_CFI=y                  >> configs/debian_defconfig
 	echo CONFIG_CFIHAMMING1=y          >> configs/debian_defconfig
 	echo CONFIG_UBIVOL=y               >> configs/debian_defconfig
