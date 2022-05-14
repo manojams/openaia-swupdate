@@ -1,3 +1,18 @@
+swupdate (2022.05-1) unstable; urgency=high
+
+  * New upstream version 2022.05
+  * d/copyright: Update to new version
+  * d/changelog: Remove unreleased package revisions
+  * Enable runtime u-boot/grub handling
+  * Add docs for Debian package's features
+
+  [ Quirin Gylstorff ]
+  * Set CONFIG_HASH_VERIFY explicitly
+  * Make CONFIG_HW_COMPATIBILTY optional
+  * Move scripts to update from USB Stick to examples
+
+ -- Bastian Germann <bage@debian.org>  Sat, 14 May 2022 18:27:34 +0200
+
 swupdate (2021.11-1) unstable; urgency=medium
 
   * Add option to build with efibootguard
