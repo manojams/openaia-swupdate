@@ -23,6 +23,7 @@
 #include "util.h"
 
 void diskpart_handler(void);
+void diskpart_toggle_boot(void);
 
 /*
  * This is taken from libfdisk to declare if a field is not set
@@ -53,6 +54,7 @@ enum partfield {
 	PART_FSTYPE,
 	PART_DOSTYPE,
 	PART_UUID,
+	PART_FLAG,
 };
 
 const char *fields[] = {
@@ -63,6 +65,7 @@ const char *fields[] = {
 	[PART_FSTYPE] = "fstype",
 	[PART_DOSTYPE] = "dostype",
 	[PART_UUID] = "partuuid",
+	[PART_FLAG] = "flag",
 };
 
 struct partition_data {
@@ -74,6 +77,8 @@ struct partition_data {
 	char fstype[SWUPDATE_GENERAL_STRING_SIZE];
 	char dostype[SWUPDATE_GENERAL_STRING_SIZE];
 	char partuuid[UUID_STR_LEN];
+	int explicit_size;
+	unsigned long flags;
 	LIST_ENTRY(partition_data) next;
 };
 LIST_HEAD(listparts, partition_data);
@@ -103,6 +108,18 @@ static char *diskpart_get_lbtype(struct img_type *img)
 	return dict_get_value(&img->properties, "labeltype");
 }
 
+static bool diskpart_is_gpt(struct img_type *img)
+{
+	char *lbtype = diskpart_get_lbtype(img);
+	return (lbtype && !strcmp(lbtype, "gpt"));
+}
+
+static bool diskpart_is_dos(struct img_type *img)
+{
+	char *lbtype = diskpart_get_lbtype(img);
+	return (lbtype && !strcmp(lbtype, "dos"));
+}
+
 static int diskpart_assign_label(struct fdisk_context *cxt, struct img_type *img,
 		struct hnd_priv priv, struct create_table *createtable, unsigned long hybrid)
 {
@@ -124,7 +141,7 @@ static int diskpart_assign_label(struct fdisk_context *cxt, struct img_type *img
 		if (hybrid)
 			createtable->child = true;
 	} else if (lbtype) {
-		if (!strcmp(lbtype, "gpt")) {
+		if (diskpart_is_gpt(img)) {
 			priv.labeltype = FDISK_DISKLABEL_GPT;
 		} else {
 			priv.labeltype = FDISK_DISKLABEL_DOS;
@@ -186,8 +203,8 @@ static int diskpart_assign_context(struct fdisk_context **cxt,struct img_type *i
 	 */
 	ret = fdisk_assign_device(parent, path, 0);
 	free(path);
-	if (ret == -EACCES) {
-		ERROR("no access to %s", img->device);
+	if (ret < 0) {
+		ERROR("Device %s cannot be opened: %s", img->device, strerror(-ret));
 		return ret;
 	}
 
@@ -305,10 +322,13 @@ static int diskpart_set_partition(struct fdisk_partition *pa,
 		ret |= -EINVAL;
 	if (strlen(part->name))
 	      ret |= fdisk_partition_set_name(pa, part->name);
-	if (part->size != LIBFDISK_INIT_UNDEF(part->size))
+	if (part->size != LIBFDISK_INIT_UNDEF(part->size)) {
 	      ret |= fdisk_partition_set_size(pa, part->size / sector_size);
-	else
+	      if (part->explicit_size)
+			ret |= fdisk_partition_size_explicit(pa, part->explicit_size);
+	} else {
 		ret |= fdisk_partition_end_follow_default(pa, 1);
+	}
 
 	if (parttype)
 		ret |= fdisk_partition_set_type(pa, parttype);
@@ -481,6 +501,9 @@ static bool is_diskpart_different(struct fdisk_partition *firstpa, struct fdisk_
 		if (fdisk_parttype_get_code(firstpa_type) != fdisk_parttype_get_code(secondpa_type)) {
 			return true;
 		}
+		if (fdisk_partition_is_bootable(firstpa) != fdisk_partition_is_bootable(secondpa)) {
+			return true;
+		}
 	}
 
 	return false;
@@ -535,11 +558,15 @@ static int diskpart_fill_table(struct fdisk_context *cxt, struct diskpart_table 
 		 * GPT uses strings instead of hex code for partition type
 		 */
 		if (fdisk_is_label(PARENT(cxt), GPT)) {
-			parttype = fdisk_label_get_parttype_from_string(lb, part->type);
-			if (!parttype)
+			if (part->type[0]) {
+				parttype = fdisk_label_get_parttype_from_string(lb, part->type);
+				if (!parttype)
+					parttype = fdisk_new_unknown_parttype(0, part->type);
+			} else {
 				parttype = fdisk_label_get_parttype_from_string(lb, GPT_DEFAULT_ENTRY_TYPE);
+			}
 		} else {
-			parttype = fdisk_label_get_parttype_from_code(lb, ustrtoull(part->type, 16));
+			parttype = fdisk_label_get_parttype_from_code(lb, ustrtoull(part->type, NULL, 16));
 		}
 		ret = diskpart_set_partition(newpa, part, sector_size, parttype, oldtb->parent);
 		if (ret) {
@@ -574,7 +601,7 @@ static int diskpart_fill_table(struct fdisk_context *cxt, struct diskpart_table 
 
 				newpa = fdisk_new_partition();
 
-				parttype = fdisk_label_get_parttype_from_code(lb, ustrtoull(part->dostype, 16));
+				parttype = fdisk_label_get_parttype_from_code(lb, ustrtoull(part->dostype, NULL, 16));
 				if (!parttype) {
 					ERROR("I cannot add hybrid partition %zu(%s) invalid dostype: %s",
 						part->partno, part->name, part->dostype);
@@ -603,6 +630,14 @@ static int diskpart_fill_table(struct fdisk_context *cxt, struct diskpart_table 
 		ret = diskpart_reload_table(cxt, tb->child);
 		if (ret)
 			return ret;
+	} else {
+		if (fdisk_is_label(cxt, DOS)) {
+			LIST_FOREACH(part, &priv.listparts, next) {
+				if (part->flags & DOS_FLAG_ACTIVE) {
+					fdisk_toggle_partition_flag(cxt, part->partno, DOS_FLAG_ACTIVE);
+				}
+			}
+		}
 	}
 	return ret;
 }
@@ -776,7 +811,6 @@ static void diskpart_unref_context(struct fdisk_context *cxt)
 static int diskpart(struct img_type *img,
 	void __attribute__ ((__unused__)) *data)
 {
-	char *lbtype = diskpart_get_lbtype(img);
 	struct dict_list *parts;
 	struct dict_list_elem *elem;
 	struct fdisk_context *cxt = NULL;
@@ -787,12 +821,13 @@ static int diskpart(struct img_type *img,
 	int ret = 0;
 	unsigned long i;
 	unsigned long hybrid = 0;
+	unsigned int nbootflags = 0;
 	struct hnd_priv priv =  {
 		.labeltype = FDISK_DISKLABEL_DOS,
 	};
 	struct create_table *createtable = NULL;
 
-	if (!lbtype || (strcmp(lbtype, "gpt") && strcmp(lbtype, "dos"))) {
+	if (!diskpart_is_gpt(img) && !diskpart_is_dos(img)) {
 		ERROR("Just GPT or DOS partition table are supported");
 		return -EINVAL;
 	}
@@ -850,10 +885,12 @@ static int diskpart(struct img_type *img,
 					equal++;
 					switch (i) {
 					case PART_SIZE:
-						part->size = ustrtoull(equal, 10);
+						part->size = ustrtoull(equal, NULL, 10);
+						if (!size_delimiter_match(equal))
+							part->explicit_size = 1;
 						break;
 					case PART_START:
-						part->start = ustrtoull(equal, 10);
+						part->start = ustrtoull(equal, NULL, 10);
 						break;
 					case PART_TYPE:
 						strncpy(part->type, equal, sizeof(part->type));
@@ -876,6 +913,20 @@ static int diskpart(struct img_type *img,
 						break;
 					case PART_UUID:
 						strncpy(part->partuuid, equal, sizeof(part->partuuid));
+						break;
+					case PART_FLAG:
+						if (strcmp(equal, "boot")) {
+							ERROR("Unknown flag : %s", equal);
+							ret = -EINVAL;
+							goto handler_exit;
+						}
+						nbootflags++;
+						if (nbootflags > 1) {
+							ERROR("Boot flag set to multiple partitions");
+							ret = -EINVAL;
+							goto handler_exit;
+						}
+						part->flags |= DOS_FLAG_ACTIVE;
 						break;
 					}
 				}
@@ -925,8 +976,13 @@ static int diskpart(struct img_type *img,
 		}
 	}
 
-	if (hybrid && (!lbtype || strcmp(lbtype, "gpt"))) {
+	if (hybrid && !diskpart_is_gpt(img)) {
 		ERROR("Partitions have hybrid(dostype) entries but labeltype is not gpt !");
+		ret = -EINVAL;
+		goto handler_release;
+	}
+	if (nbootflags && !diskpart_is_dos(img)) {
+		ERROR("Boot flag can be set just for labeltype dos !");
 		ret = -EINVAL;
 		goto handler_release;
 	}
@@ -1056,9 +1112,114 @@ handler_release:
 	return ret;
 }
 
+static int toggle_boot(struct img_type *img, void  *data)
+{
+
+	struct fdisk_context *cxt;
+	char *path;
+	int ret;
+	unsigned long partno;
+
+	struct script_handler_data *script_data;
+
+	if (!data)
+		return -1;
+
+	script_data = data;
+
+	if (script_data->scriptfn != POSTINSTALL)
+		return 0;
+
+	/*
+	 * Parse properties
+	 */
+	partno = strtoul(dict_get_value(&img->properties, "partition"), NULL, 10);
+
+	/*
+	 * Set is possible only for primary partitions
+	 */
+	if (partno > 4 || partno < 1) {
+		ERROR("Wrong partition number: %ld", partno);
+		return -EINVAL;
+	}
+
+	partno--;
+
+	cxt = fdisk_new_context();
+	if (!cxt) {
+		ERROR("Failed to allocate libfdisk context");
+		return -ENOMEM;
+	}
+
+	/*
+	 * Resolve device path symlink.
+	 */
+	path = realpath(img->device, NULL);
+	if (!path)
+		path = strdup(img->device);
+
+	/*
+	 * fdisk_new_nested_context requires the device to be assigned.
+	 */
+	ret = fdisk_assign_device(cxt, path, 0);
+	free(path);
+	if (ret < 0) {
+		ERROR("Device %s cannot be opened: %s", img->device, strerror(-ret));
+		return ret;
+	}
+
+	if (!fdisk_is_label(cxt, DOS)) {
+		ERROR("Setting boot flag supported for DOS table only");
+		ret = -EINVAL;
+		goto toggle_boot_exit;
+	}
+
+	int nparts = fdisk_get_npartitions(cxt);
+
+	TRACE("Toggling Boot Flag for partition %ld", partno);
+
+	struct fdisk_partition *pa = NULL;
+	for (int i = 0; i < nparts; i++) {
+
+		if (fdisk_get_partition(cxt, i, &pa) != 0)
+			continue;
+
+		if (i != partno) {
+			if (fdisk_partition_is_bootable(pa))
+				fdisk_toggle_partition_flag(cxt, i, DOS_FLAG_ACTIVE);
+		} else {
+			if (!fdisk_partition_is_bootable(pa)) {
+				ret = fdisk_toggle_partition_flag(cxt, i, DOS_FLAG_ACTIVE);
+				if (ret)
+					ERROR("Setting boot flag for partition %d on %s FAILED", i, img->device);
+			}
+		}
+	}
+	fdisk_unref_partition(pa);
+
+	ret = fdisk_write_disklabel(cxt);
+
+toggle_boot_exit:
+	if (cxt && fdisk_get_devfd(cxt) >= 0) {
+		if (fdisk_deassign_device(cxt, 0))
+			WARN("Error deassign device %s", img->device);
+	}
+	if (cxt)
+		diskpart_unref_context(cxt);
+
+	return ret;
+}
+
 __attribute__((constructor))
 void diskpart_handler(void)
 {
 	register_handler("diskpart", diskpart,
 				PARTITION_HANDLER | NO_DATA_HANDLER, NULL);
+}
+
+__attribute__((constructor))
+void diskpart_toggle_boot(void)
+{
+	register_handler("toggleboot", toggle_boot,
+				SCRIPT_HANDLER | NO_DATA_HANDLER, NULL);
 }

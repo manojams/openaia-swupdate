@@ -68,7 +68,6 @@ against it. To use it as replacement for u-boot-fw-utils:
 ::
 
                 CONFIG_UBOOT=y
-                CONFIG_UBOOT_NEWAPI=y
 
 With this library, you can simply pass the default environment as file (u-boot-initial-env).
 It is recommended for new project to switch to the new library to become independent from
@@ -126,7 +125,7 @@ generating the SWU. The class defines new variables, all of them have the prefix
   process using CMS mechanism. It is available if SWUPDATE_SIGNING is set to
   CMS.
 - **SWUPDATE_CMS_CERT** : this is the file with the certificate used in signing
-  process using using CMS method. It is available if SWUPDATE_SIGNING is
+  process using CMS method. It is available if SWUPDATE_SIGNING is
   set to CMS.
 
 - **SWUPDATE_AES_FILE** : this is the file with the AES password to encrypt artifact. A new `fstype` is
@@ -135,7 +134,7 @@ generating the SWU. The class defines new variables, all of them have the prefix
 
   ::
 
-                openssl enc -aes-256-cbc -k <PASSPHRASE> -P -md sha1 > $SWUPDATE_AES_FILE
+                openssl enc -aes-256-cbc -k <PASSPHRASE> -P -md sha1 -nosalt > $SWUPDATE_AES_FILE
 
   To use it, it is enough to add IMAGE_FSTYPES += "enc" to the  artifact. SWUpdate supports decryption of
   compressed artifact, such as

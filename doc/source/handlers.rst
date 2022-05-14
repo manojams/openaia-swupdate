@@ -68,6 +68,12 @@ The structure *img_type* contains the file descriptor of the stream pointing to 
 of the image to be installed. The handler must read the whole image, and when it returns
 back SWUpdate can go on with the next image in the stream.
 
+The data parameter is usually a pointer that was registered with the
+handler. For script handlers it is instead a pointer to a ``struct
+script_handler_data`` which contains a ``script_fn`` enum value,
+indicating the current installation phase, and the registered data
+pointer.
+
 SWUpdate provides a general function to extract data from the stream and copy
 to somewhere else:
 
@@ -304,6 +310,16 @@ Note that dashes in the attributes' names are replaced with
 underscores for the Lua domain to make them idiomatic, e.g.,
 ``installed-directly`` becomes ``installed_directly`` in the
 Lua domain.
+
+For a script handler written in Lua, the prototype is
+
+::
+
+        function lua_handler(image, scriptfn)
+            ...
+        end
+
+where ``scriptfn`` is either ``"preinst"`` or ``"postinst"``.
 
 To register a Lua handler, the ``swupdate`` module provides the
 ``swupdate.register_handler()`` method that takes the handler's
@@ -764,11 +780,12 @@ Properties ``size`` and ``offset`` are optional, all the other properties are ma
 Rawcopy handler
 ---------------
 
-The rawcopy handler copies one source to a destination. It can be used to copy configuration data,
-or parts that should be taken by the current installation. It requires just one property (`copyfrom`), while
-device contains the destination path. The handler performs a byte copy, and it does not matter which is
-the source - it can be a file or a partition.
-
+The rawcopy handler copies one source to a destination. It is a script handler, and no artifact in the SWU is associated
+with the handler.  It can be used to copy configuration data, or parts that should be taken by the current installation.
+It requires the mandatory  property (`copyfrom`), while device contains the destination path. 
+The handler performs a byte copy, and it does not matter which is the source - it can be a file or a partition.
+An optional `type` field can set if the handler is active as pre or postinstall script. If not set, the handler
+is called twice.
 
 ::
 
@@ -778,8 +795,38 @@ the source - it can be a file or a partition.
                 type = "rawcopy";
                 properties : {
                         copyfrom = "/dev/mmcblk2p2";
+                        type = "postinstall";
                 }
         }
+
+
+Archive handler
+---------------
+
+The archive handler extracts an archive to a destination path.
+It supports whatever format libarchive has been compiled to support, for example even if swupdate
+itself has no direct support for xz it can be possible to extract tar.xz files with it.
+
+The attribute `preserve-attributes` must be set to preserve timestamps. uid/gid (numeric),
+permissions (except +x, always preserved) and extended attributes.
+
+The property `create-destination` can be set to the string `true` to have swupdate create
+the destination path before extraction.
+
+::
+
+                files: (
+                        {
+                                filename = "examples.tar.zst";
+                                type = "archive";
+                                path = "/extract/here";
+                                preserve-attributes = true;
+                                installed-directly = true;
+                                properties: {
+                                        create-destination = "true";
+                                }
+                        }
+                );
 
 Disk partitioner
 ----------------
@@ -847,6 +894,9 @@ supported:
    | partuuid    | string   | The partition UUID (GPT only). If omitted, a UUID  |
    |             |          | will be generated automatically.			 |
    +-------------+----------+----------------------------------------------------+
+   | flag        | string   | The following flags are supported:                 |
+   |             |          | Dos Partition : "boot" set bootflag		 |
+   +-------------+----------+----------------------------------------------------+
 
 
 
@@ -895,6 +945,24 @@ MBR Example:
 		    "fstype=vfat"];
 	   }
 	}
+
+Toggleboot Handler
+------------------
+
+This handler is a script handler. It turns on the bootflag for one of a disk partition
+if the partition table is DOS. It reports an error if the table is GPT.
+
+::
+
+	script: (
+	{
+	   type = "toggleboot";
+	   device = "/dev/sde";
+	   properties: {
+		partition = "1";
+           }
+        }
+
 
 Diskformat Handler
 ------------------

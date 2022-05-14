@@ -21,6 +21,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include "bsdqueue.h"
 #include "util.h"
@@ -141,8 +142,6 @@ static int write_notify_msg(ipc_message *msg, int sockfd)
 			 */
 			if (n == 0) {
 				fprintf(stderr, "Error: A status client is not responding, removing it.\n");
-			} else {
-				fprintf(stderr, "A status client disappeared, removing it: %s\n", strerror(errno));
 			}
 			ret = -1;
 			break;
@@ -327,7 +326,7 @@ static void send_subprocess_reply(
 {
 	if (write(subprocess_msg->client, &subprocess_msg->message,
 			sizeof(subprocess_msg->message)) < 0)
-		ERROR("Error write on socket ctrl");
+		ERROR("Error writing on ctrl socket: %s", strerror(errno));
 }
 
 static void handle_subprocess_ipc(struct subprocess_msg_elem *subprocess_msg)
@@ -404,6 +403,12 @@ static void *subprocess_thread (void *data)
 {
 	(void)data;
 	thread_ready();
+
+	sigset_t sigpipe_mask;
+	sigemptyset(&sigpipe_mask);
+	sigaddset(&sigpipe_mask, SIGPIPE);
+	pthread_sigmask(SIG_BLOCK, &sigpipe_mask, NULL);
+
 	pthread_mutex_lock(&subprocess_msg_lock);
 
 	while(1) {
@@ -534,9 +539,10 @@ void *network_thread (void *data)
 				if (instp->status == IDLE) {
 					instp->fd = ctrlconnfd;
 					instp->req = msg.data.instmsg.req;
-					if (is_selection_allowed(instp->req.software_set,
-								 instp->req.running_mode,
-								 &instp->software->accepted_set)) {
+					if ((instp->req.apiversion == SWUPDATE_API_VERSION) &&
+					    (is_selection_allowed(instp->req.software_set,
+								  instp->req.running_mode,
+								  &instp->software->accepted_set))) {
 						/*
 						 * Prepare answer
 						 */

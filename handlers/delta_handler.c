@@ -329,7 +329,7 @@ static int delta_retrieve_attributes(struct img_type *img, struct hnd_priv *priv
 		if (!strcmp(srcsize, "detect"))
 			priv->detectsrcsize = true;
 		else
-			priv->srcsize = ustrtoull(srcsize, 10);
+			priv->srcsize = ustrtoull(srcsize, NULL, 10);
 	}
 
 	char *zckloglevel = dict_get_value(&img->properties, "zckloglevel");
@@ -883,7 +883,7 @@ static int install_delta(struct img_type *img,
 	 * No streaming allowed
 	 */
 	if (img->install_directly) {
-		ERROR("Do not set install-directly with delta, the header cannot be streamed");
+		ERROR("Do not set installed-directly with delta, the header cannot be streamed");
 		return -EINVAL;
 	}
 
@@ -930,8 +930,7 @@ static int install_delta(struct img_type *img,
 	 * FIFO to communicate with the chainhandler thread
 	 */
 	unlink(FIFO);
-	ret = mkfifo(FIFO, 0600);
-	if (ret) {
+	if (mkfifo(FIFO, 0600)) {
 		ERROR("FIFO cannot be created in delta handler");
 		goto cleanup;
 	}

@@ -33,6 +33,7 @@
 #define SWUPDATE_ALIGN(A,S)    (((A) + (S) - 1) & ~((S) - 1))
 
 extern int loglevel;
+extern int exit_code;
 
 typedef enum {
 	SERVER_OK,
@@ -125,6 +126,7 @@ void notifier_set_color(int level, char *col);
 #endif
 
 #define STRINGIFY(...) #__VA_ARGS__
+#define PREPROCVALUE(s) STRINGIFY(s)
 #define SETSTRING(p, v) do { \
 	if (p) \
 		free(p); \
@@ -160,25 +162,25 @@ bool strtobool(const char *s);
 /*
  * Function to extract / copy images
  */
-typedef int (*writeimage) (void *out, const void *buf, unsigned int len);
+typedef int (*writeimage) (void *out, const void *buf, size_t len);
 
 void *saferealloc(void *ptr, size_t size);
 int openfile(const char *filename);
-int copy_write(void *out, const void *buf, unsigned int len);
+int copy_write(void *out, const void *buf, size_t len);
 #if defined(__FreeBSD__)
-int copy_write_padded(void *out, const void *buf, unsigned int len);
+int copy_write_padded(void *out, const void *buf, size_t len);
 #endif
 #if defined(__linux__)
 /* strlcpy was originally developped in FreeBSD, not present in glibc */
 size_t
 strlcpy(char *dst, const char * src, size_t size);
 #endif
-int copyfile(int fdin, void *out, unsigned int nbytes, unsigned long *offs,
+int copyfile(int fdin, void *out, size_t nbytes, unsigned long *offs,
 	unsigned long long seek,
 	int skip_file, int compressed, uint32_t *checksum,
 	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 int copyimage(void *out, struct img_type *img, writeimage callback);
-int copybuffer(unsigned char *inbuf, void *out, unsigned int nbytes, int compressed,
+int copybuffer(unsigned char *inbuf, void *out, size_t nbytes, int compressed,
 	unsigned char *hash, bool encrypted, const char *imgivt, writeimage callback);
 off_t extract_next_file(int fd, int fdout, off_t start, int compressed,
 			int encrypted, char *ivt, unsigned char *hash);
@@ -228,7 +230,8 @@ void set_version_range(const char *minversion,
 			const char *maxversion,
 			const char *current);
 
-unsigned long long ustrtoull(const char *cp, unsigned int base);
+int size_delimiter_match(const char *size);
+unsigned long long ustrtoull(const char *cp, char **endptr, unsigned int base);
 
 const char* get_tmpdir(void);
 const char* get_tmpdirscripts(void);
