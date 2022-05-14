@@ -263,9 +263,12 @@ static void *server_progress_thread (void *data)
 	channel = channel_new();
 	if (!channel) {
 		ERROR("Cannot get channel for communication");
+		pthread_exit((void *)SERVER_EINIT);
 	}
 	if (channel->open(channel, &channel_data) != CHANNEL_OK) {
 		ERROR("Cannot open channel for progress thread");
+		(void)channel->close(channel);
+		free(channel);
 		pthread_exit((void *)SERVER_EINIT);
 	}
 
@@ -340,6 +343,7 @@ static void *server_progress_thread (void *data)
 	}
 
 	(void)channel->close(channel);
+	free(channel);
 	pthread_exit((void *)0);
 }
 
@@ -394,7 +398,7 @@ cleanup:
 	curl_easy_cleanup(curl);
 
 	if (!qry)
-		qry = url;
+		qry = strdup(url);
 
 	return qry;
 
@@ -461,7 +465,6 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 	channel_data->url= server_prepare_query(server_general.url, &server_general.configdata);
 
 	LIST_INIT(&server_general.received_httpheaders);
-	LIST_INIT(&server_general.httpheaders_to_send);
 	channel_data->received_headers = &server_general.received_httpheaders;
 
 	result = map_http_retcode(channel->get(channel, (void *)channel_data));
@@ -482,28 +485,16 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 
 server_op_res_t server_has_pending_action(int *action_id)
 {
-
-	channel_data_t channel_data = channel_data_defaults;
-	server_op_res_t result =
-	    server_get_deployment_info(server_general.channel,
-				       &channel_data);
-
-	/*
-	 * action_id is not used by this server
-	 * There is no memory between one call and the next one
-	 */
 	*action_id = 0;
 
-	if ((result == SERVER_UPDATE_AVAILABLE) &&
-	    (get_state() == STATE_INSTALLED)) {
-		WARN("An already installed update is pending testing, "
-		     "ignoring available update action.");
-		INFO("Please restart SWUpdate to report the test results "
-		     "upstream.");
-		result = SERVER_NO_UPDATE_AVAILABLE;
+	if (get_state() == STATE_INSTALLED) {
+		WARN("An already installed update is pending testing.");
+		return SERVER_NO_UPDATE_AVAILABLE;
 	}
 
-	return result;
+	channel_data_t channel_data = channel_data_defaults;
+	return server_get_deployment_info(server_general.channel,
+					  &channel_data);
 }
 
 server_op_res_t server_send_target_data(void)
@@ -523,7 +514,7 @@ void server_print_help(void)
 	    stdout,
 	    "\t  -u, --url         * Host and port of the server instance, "
 	    "e.g., localhost:8080\n"
-	    "\t  -p, --polldelay     Delay in seconds between two hawkBit "
+	    "\t  -p, --polldelay     Delay in seconds between two server "
 	    "poll operations (default: %ds).\n"
 	    "\t  -r, --retry         Resume and retry interrupted downloads "
 	    "(default: %d tries).\n"
@@ -532,9 +523,9 @@ void server_print_help(void)
 	    "\t  -y, --proxy         Use proxy. Either give proxy URL, else "
 	    "{http,all}_proxy env is tried.\n"
 	    "\t  -a, --custom-http-header <name> <value> Set custom HTTP header, "
-	    "appended to every HTTP request being sent."
-	    "\t  -n, --max-download-speed <limit>	Set download speed limit."
-		"Example: -n 100k; -n 1M; -n 100; -n 1G",
+	    "appended to every HTTP request being sent.\n"
+	    "\t  -n, --max-download-speed <limit>        Set download speed limit. "
+		"Example: -n 100k; -n 1M; -n 100; -n 1G\n",
 	    CHANNEL_DEFAULT_POLLING_INTERVAL, CHANNEL_DEFAULT_RESUME_TRIES,
 	    CHANNEL_DEFAULT_RESUME_DELAY);
 }
@@ -665,8 +656,10 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			SETSTRING(server_general.cached_file, optarg);
 			break;
 		case 'a':
-			if (optind >= argc)
+			if (optind >= argc) {
+				ERROR("Wrong option format for --custom-http-header, see --help.");
 				return SERVER_EINIT;
+			}
 
 			if (dict_insert_value(&server_general.httpheaders_to_send,
 						optarg,
@@ -676,7 +669,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 			break;
 		case 'n':
 			channel_data_defaults.max_download_speed =
-				(unsigned int)ustrtoull(optarg, 10);
+				(unsigned int)ustrtoull(optarg, NULL, 10);
 			break;
 
 		case '?':
@@ -705,6 +698,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 		return SERVER_EINIT;
 
 	if (server_general.channel->open(server_general.channel, &channel_data_defaults) != CHANNEL_OK) {
+		(void)server_general.channel->close(server_general.channel);
+		free(server_general.channel);
 		return SERVER_EINIT;
 	}
 
@@ -722,6 +717,8 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 server_op_res_t server_stop(void)
 {
 	(void)server_general.channel->close(server_general.channel);
+	free(server_general.channel);
+	dict_drop_db(&server_general.httpheaders_to_send);
 	return SERVER_OK;
 }
 

@@ -6,7 +6,7 @@
 # Build system
 # ==========================================================================
 
-SWU_VER = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+SWU_VER = $(shell git describe --tags --always --dirty)
 export SWU_VER
 SKIP_STRIP ?= n
 
@@ -210,7 +210,7 @@ LDLIBS += gpiod
 endif
 
 ifeq ($(CONFIG_UBOOT),y)
-LDLIBS += z ubootenv
+LDLIBS += dl
 endif
 
 ifeq ($(CONFIG_SYSTEMD),y)
@@ -218,7 +218,19 @@ LDLIBS += systemd
 endif
 
 ifeq ($(CONFIG_BOOTLOADER_EBG),y)
-LDLIBS += ebgenv z
+LDLIBS += dl
+endif
+
+ifeq ($(CONFIG_BOOTLOADER_DEFAULT_NONE),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="none"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_GRUB),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="grub"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_UBOOT),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="uboot"
+else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_EBG),y)
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="ebg"
+else
+KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="none"
 endif
 
 # SWU forwarder

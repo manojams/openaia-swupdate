@@ -60,6 +60,9 @@ static pthread_t network_daemon;
 /* Tree derived from the configuration file */
 static struct swupdate_cfg swcfg;
 
+int loglevel = ERRORLEVEL;
+int exit_code = EXIT_SUCCESS;
+
 #ifdef CONFIG_MTD
 /* Global MTD configuration */
 static struct flash_description flashdesc;
@@ -114,10 +117,9 @@ static struct option long_options[] = {
 #ifdef CONFIG_WEBSERVER
 	{"webserver", required_argument, NULL, 'w'},
 #endif
+	{"bootloader", required_argument, NULL, 'B'},
 	{NULL, 0, NULL, 0}
 };
-
-int loglevel = ERRORLEVEL;
 
 static void usage(char *programname)
 {
@@ -129,11 +131,12 @@ static void usage(char *programname)
 #ifdef CONFIG_UBIATTACH
 		" -b, --blacklist <list of mtd>  : MTDs that must not be scanned for UBI\n"
 #endif
+		" -B, --bootloader               : bootloader interface (default: " PREPROCVALUE(BOOTLOADER_DEFAULT) ")\n"
 		" -p, --postupdate               : execute post-update command\n"
 		" -P, --preupdate                : execute pre-update command\n"
 		" -e, --select <software>,<mode> : Select software images set and source\n"
 		"                                  Ex.: stable,main\n"
-		" --accepted-select\n"
+		" -q, --accepted-select\n"
 		"            <software>,<mode>   : List for software images set and source\n"
 		"                                  that are accepted via IPC\n"
 		"                                  Ex.: stable,main\n"
@@ -284,6 +287,15 @@ static int read_globals_settings(void *elem, void *data)
 	struct swupdate_cfg *sw = (struct swupdate_cfg *)data;
 
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
+				"bootloader", tmp);
+	if (tmp[0] != '\0') {
+		if (set_bootloader(tmp) != 0) {
+			ERROR("Bootloader interface '%s' could not be initialized.", tmp);
+			exit(EXIT_FAILURE);
+		}
+		tmp[0] = '\0';
+	}
+	GET_FIELD_STRING(LIBCFG_PARSER, elem,
 				"public-key-file", sw->publickeyfname);
 	GET_FIELD_STRING(LIBCFG_PARSER, elem,
 				"ca-path", sw->publickeyfname);
@@ -410,7 +422,6 @@ int main(int argc, char **argv)
 	char main_options[256];
 	unsigned int public_key_mandatory = 0;
 	struct sigaction sa;
-	int result = EXIT_SUCCESS;
 #ifdef CONFIG_SURICATTA
 	int opt_u = 0;
 	char *suricattaoptions;
@@ -435,7 +446,7 @@ int main(int argc, char **argv)
 #endif
 	memset(main_options, 0, sizeof(main_options));
 	memset(image_url, 0, sizeof(image_url));
-	strcpy(main_options, "vhni:e:gq:l:Lcf:p:P:o:N:R:Mm");
+	strcpy(main_options, "vhni:e:gq:l:Lcf:p:P:o:N:R:MmB:");
 #ifdef CONFIG_MTD
 	strcat(main_options, "b:");
 #endif
@@ -580,6 +591,13 @@ int main(int argc, char **argv)
 			break;
 		case 'o':
 			strlcpy(swcfg.output, optarg, sizeof(swcfg.output));
+			break;
+		case 'B':
+			if (set_bootloader(optarg) != 0) {
+				ERROR("Bootloader interface '%s' could not be initialized.", optarg);
+				print_registered_bootloaders();
+				exit(EXIT_FAILURE);
+			}
 			break;
 		case 'l':
 			loglevel = strtoul(optarg, NULL, 10);
@@ -754,6 +772,20 @@ int main(int argc, char **argv)
 	printf("Licensed under GPLv2. See source distribution for detailed "
 		"copyright notices.\n\n");
 
+	print_registered_bootloaders();
+	if (!get_bootloader()) {
+		if (set_bootloader(PREPROCVALUE(BOOTLOADER_DEFAULT)) != 0) {
+			ERROR("Default bootloader interface '" PREPROCVALUE(
+			    BOOTLOADER_DEFAULT) "' couldn't be loaded.");
+			INFO("Check that the bootloader interface shared library is present.");
+			INFO("Or chose another bootloader interface by supplying -B <loader>.");
+			exit(EXIT_FAILURE);
+		}
+		INFO("Using default bootloader interface: " PREPROCVALUE(BOOTLOADER_DEFAULT));
+	} else {
+		INFO("Using bootloader interface: %s", get_bootloader());
+	}
+
 	/*
 	 * Install a child handler to check if a subprocess
 	 * dies
@@ -860,7 +892,7 @@ int main(int argc, char **argv)
 		gid_t gid;
 		read_settings_user_id(&handle, "download", &uid, &gid);
 		start_subprocess(SOURCE_CHUNKS_DOWNLOADER, "chunks_downloader", uid, gid,
-				cfgfname, ac, av,
+				cfgfname, 0, NULL,
 				start_delta_downloader);
 	}
 #endif
@@ -887,8 +919,7 @@ int main(int argc, char **argv)
 	}
 
 	if (opt_i) {
-		result = install_from_file(fname, opt_c);
-		cleanup_files(&swcfg);
+		exit_code = install_from_file(fname, opt_c);
 	}
 
 #ifdef CONFIG_SYSTEMD
@@ -914,5 +945,5 @@ int main(int argc, char **argv)
 	if (!opt_c && !opt_i)
 		pthread_join(network_daemon, NULL);
 
-	return result;
+	return exit_code;
 }
