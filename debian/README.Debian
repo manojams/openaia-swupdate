@@ -20,9 +20,7 @@ Cryptographic hash verification (integrity) is still enabled with this set.
 Please only use this when you can ensure authenticity in some other way.
 
 pkg.swupdate.efibootguard
-pkg.swupdate.grub
-pkg.swupdate.uboot
-Enable support for a bootloader-specific handling of failure-safe update.
+Enable support for handling of failure-safe update with EFI Boot Guard.
 
 EXAMPLES
 ========
