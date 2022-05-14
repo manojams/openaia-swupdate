@@ -11,6 +11,10 @@ Files:     .editorconfig
 Copyright: 2019 Adrian Freihofer <adrian.freihofer@siemens.com>
 License:   CC0-1.0
 
+Files:     .github/workflows/contributing.yml
+Copyright: 2021 James Hilliard <james.hilliard1@gmail.com>
+License:   MIT
+
 Files:     .gitignore
            configs/*
            examples/configuration/swupdate.cfg
@@ -122,6 +126,7 @@ License:   LGPL-2.1+
 
 Files:     bootloader/ebg.c
            ci/*.sh
+           core/bootloader.c
            core/state.c
            include/channel*.h
            corelib/channel_curl.c
@@ -131,11 +136,15 @@ Files:     bootloader/ebg.c
            handlers/rdiff_handler.c
            suricatta/server_hawkbit.h
            suricatta/suricatta.c
-Copyright: 2016, 2018 Siemens AG
+Copyright: 2016, 2018, 2022 Siemens AG
 License:   GPL-2
 
 Files:     suricatta/Config.in
 Copyright: 2016 Christian Storm <christian.storm@tngtech.com>
+License:   GPL-2
+
+Files:     doc/source/bootloader_interface.rst
+Copyright: 2022 Christian Storm <christian.storm@siemens.com>
 License:   GPL-2
 
 Files:     corelib/lua_compat.c
@@ -154,6 +163,10 @@ License:   GPL-2+
 Files:     test/test_hash.c
            test/test_verify.c
 Copyright: 2019 Laszlo Ashin <laszlo@ashin.hu>
+License:   GPL-2+
+
+Files:     test/test_util.c
+Copyright: 2022 Kyle Russell <bkylerussell@gmail.com>
 License:   GPL-2+
 
 Files:     corelib/swupdate_decrypt_mbedtls.c
@@ -334,24 +347,28 @@ Copyright: 2018 Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
 License: MIT
 
 Files: examples/www/v2/css/dropzone.min.css
-Copyright: 2012 Matias Meno <m@tias.me>
+Copyright: 2021 Matias Meno <m@tias.me>
 License: MIT
 
 Files: examples/www/v2/js/dropzone.min.js
-Copyright: 2012 Matias Meno <m@tias.me>
+Copyright: 2021 Matias Meno <m@tias.me>
 License: MIT
 
 Files: examples/www/v2/js/bootstrap.min.js
-Copyright: 2011-2018 the Bootstrap Authors
+Copyright: 2011-2021 the Bootstrap Authors
 License: MIT
 
 Files: examples/www/v2/js/jquery.min.js
-Copyright: 2011-2018 OpenJS Foundation and other contributors
+Copyright: 2011-2021 OpenJS Foundation and other contributors
 License: MIT
 
 Files: doc/source/images/*
 Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
 License: GPL-2
+
+Files:     examples/www/v2/css/bootstrap.min.css
+Copyright: 2011-2021 The Bootstrap Authors
+           2011-2021 Twitter, Inc.
 
 Files:     handlers/zchunk_range.c
 Copyright: 2021 Stefano Babic, sbabic@denx.de.
@@ -360,7 +377,7 @@ License:   GPL-2
 
 Files:     debian/*
 Copyright: 2019 SZ Lin (林上智) <szlin@debian.org>
-           2020, 2021 Bastian Germann
+           2020-2022 Bastian Germann
 License:   GPL-2+
 
 Files:     debian/swupdate.init
