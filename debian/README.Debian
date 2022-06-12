@@ -5,7 +5,7 @@ There are some custom build profiles that that are disabled by default:
 pkg.swupdate.bpo
 Build a backport friendly version of the package with some default features
 disabled that would require unavailable dependencies.
-Currently this targets buster.
+Currently this targets bullseye.
 
 pkg.swupdate.p11
 Enable using PKCS#11 for AES decryption
