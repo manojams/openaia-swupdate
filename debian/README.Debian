@@ -1,6 +1,6 @@
 DPKG BUILD PROFILES
 ===================
-There are some custom build profiles that that are disabled by default:
+There are some custom build profiles that are disabled by default:
 
 pkg.swupdate.bpo
 Build a backport friendly version of the package with some default features
