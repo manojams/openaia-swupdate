@@ -31,9 +31,9 @@ else
 endif
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_DELTA=y >> configs/debian_defconfig
-endif
-ifneq (,$(filter pkg.swupdate.efibootguard,$(DEB_BUILD_PROFILES)))
+ifneq (,$(findstring $(DEB_HOST_ARCH),amd64 i386 arm64 armhf riscv64 ia64))
 	echo CONFIG_BOOTLOADER_EBG=y                    >> configs/debian_defconfig
+endif
 endif
 ifeq (,$(filter pkg.swupdate.nohwcompat,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_HW_COMPATIBILITY=y                   >> configs/debian_defconfig
