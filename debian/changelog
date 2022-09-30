@@ -1,3 +1,15 @@
+swupdate (2022.05-2) unstable; urgency=medium
+
+  * Enable Delta for bookworm
+  * Enable UCFW handler
+  * Enable CONFIG_UBOOT only for Linux
+  * d/copyright: Fix lintian warnings
+  * Fix lintian: spelling-error-in-readme-debian
+  * Enable efibootguard by default
+  * Synchronize missing full JavaScript sources
+
+ -- Bastian Germann <bage@debian.org>  Fri, 30 Sep 2022 02:05:08 +0200
+
 swupdate (2022.05-1) unstable; urgency=high
 
   * New upstream version 2022.05
