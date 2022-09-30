@@ -219,6 +219,7 @@ Files:     web-app/css/swupdate.css
            web-app/gulpfile.js
            web-app/scss/bootstrap.scss
            web-app/js/swupdate.js
+           examples/www/v2/js/swupdate.min.js
 Copyright: 2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
 License:   MIT
 
@@ -351,14 +352,18 @@ Copyright: 2021 Matias Meno <m@tias.me>
 License: MIT
 
 Files: examples/www/v2/js/dropzone.min.js
+       debian/missing-sources/dropzone.js
 Copyright: 2021 Matias Meno <m@tias.me>
 License: MIT
 
 Files: examples/www/v2/js/bootstrap.min.js
+       debian/missing-sources/bootstrap.js
 Copyright: 2011-2021 the Bootstrap Authors
+           2016 Federico Zivolo and contributors
 License: MIT
 
 Files: examples/www/v2/js/jquery.min.js
+       debian/missing-sources/jquery.js
 Copyright: 2011-2021 OpenJS Foundation and other contributors
 License: MIT
 
