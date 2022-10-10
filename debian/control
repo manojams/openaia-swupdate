@@ -118,6 +118,7 @@ Section: doc
 Architecture: all
 Build-Profiles: <!nodoc>
 Depends: ${misc:Depends}
+Multi-Arch: foreign
 Description: Documentation for swupdate framework
  This package contains the documentation for swupdate.
  .
