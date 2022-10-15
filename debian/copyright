@@ -351,22 +351,6 @@ Files: examples/www/v2/css/dropzone.min.css
 Copyright: 2021 Matias Meno <m@tias.me>
 License: MIT
 
-Files: examples/www/v2/js/dropzone.min.js
-       debian/missing-sources/dropzone.js
-Copyright: 2021 Matias Meno <m@tias.me>
-License: MIT
-
-Files: examples/www/v2/js/bootstrap.min.js
-       debian/missing-sources/bootstrap.js
-Copyright: 2011-2021 the Bootstrap Authors
-           2016 Federico Zivolo and contributors
-License: MIT
-
-Files: examples/www/v2/js/jquery.min.js
-       debian/missing-sources/jquery.js
-Copyright: 2011-2021 OpenJS Foundation and other contributors
-License: MIT
-
 Files: doc/source/images/*
 Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
 License: GPL-2
@@ -394,6 +378,22 @@ Files:     debian/swupdate.init
            debian/examples/*
 Copyright: 2015, 2017 Stefano Babic <sbabic@denx.de>
 License:   MIT
+
+Files: examples/www/v2/js/dropzone.min.js
+       debian/missing-sources/dropzone.js
+Copyright: 2021 Matias Meno <m@tias.me>
+License: MIT
+
+Files: examples/www/v2/js/bootstrap.min.js
+       debian/missing-sources/bootstrap.js
+Copyright: 2011-2021 the Bootstrap Authors
+           2016 Federico Zivolo and contributors
+License: MIT
+
+Files: examples/www/v2/js/jquery.min.js
+       debian/missing-sources/jquery.js
+Copyright: 2011-2021 OpenJS Foundation and other contributors
+License: MIT
 
 License:   LGPL-2.1+
  This library is free software; you can redistribute it and/or
