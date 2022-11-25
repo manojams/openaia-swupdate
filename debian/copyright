@@ -2,6 +2,7 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: SWUpdate
 Upstream-Contact: Stefano Babic <sbabic@denx.de>
 Source: https://github.com/sbabic/swupdate
+Files-Excluded: examples/www
 
 Files:     *
 Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
