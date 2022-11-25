@@ -1,3 +1,17 @@
+swupdate (2022.05+dfsg-1) experimental; urgency=medium
+
+  * Add lintian error overrides
+  * Fix lintian: globbing-patterns-out-of-order
+  * Add swupdate-www
+  * Clean test_util so package can be rebuilt
+  * Drop missing-sources and built web-app's copyright
+  * Repack the source
+
+  [ Debian Janitor ]
+  * Apply multi-arch hints. + swupdate-doc: Add Multi-Arch: foreign.
+
+ -- Bastian Germann <bage@debian.org>  Fri, 25 Nov 2022 02:15:31 +0100
+
 swupdate (2022.05-2) unstable; urgency=medium
 
   * Enable Delta for bookworm
