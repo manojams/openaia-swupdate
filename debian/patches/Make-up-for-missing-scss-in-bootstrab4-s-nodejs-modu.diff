@@ -1,0 +1,20 @@
+From: Bastian Germann <bage@debian.org>
+Date: Fri, 25 Nov 2022 00:12:32 +0000
+Forwarded: not-needed
+Subject: Make up for missing scss in bootstrab4's nodejs module
+
+This can be dropped when #1024779 is fixed.
+---
+ web-app/scss/bootstrap.scss | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/web-app/scss/bootstrap.scss b/web-app/scss/bootstrap.scss
+index c4a4dad..b603190 100644
+--- a/web-app/scss/bootstrap.scss
++++ b/web-app/scss/bootstrap.scss
+@@ -15,4 +15,4 @@ $card-bg: $transparent;
+ 
+ $progress-height: 1.5rem !default;
+ 
+-@import 'node_modules/bootstrap/scss/bootstrap';
++@import '/usr/share/sass/bootstrap/bootstrap.scss';

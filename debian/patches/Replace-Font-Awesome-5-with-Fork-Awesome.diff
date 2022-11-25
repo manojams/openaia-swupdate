@@ -1,0 +1,24 @@
+From: Bastian Germann <bage@debian.org>
+Date: Fri, 25 Nov 2022 00:11:52 +0000
+Forwarded: not-needed
+Subject: Replace Font Awesome 5 with Fork Awesome
+
+---
+ web-app/index.html | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/web-app/index.html b/web-app/index.html
+index 641cb8c..03252cf 100755
+--- a/web-app/index.html
++++ b/web-app/index.html
+@@ -10,8 +10,8 @@
+   <link rel="stylesheet" href="node_modules/bootstrap/dist/css/bootstrap.css">
+   <!-- build:css -->
+   <link rel="stylesheet" href="node_modules/dropzone/dist/dropzone.css">
+-  <link rel="stylesheet" href="node_modules/@fortawesome/fontawesome-free/css/fontawesome.css">
+-  <link rel="stylesheet" href="node_modules/@fortawesome/fontawesome-free/css/solid.css">
++  <link rel="stylesheet" href="awesome/css/fork-awesome.css">
++  <link rel="stylesheet" href="awesome/css/v5-compat.css">
+   <link rel="stylesheet" href="css/swupdate.css">
+   <!-- endbuild -->
+ 

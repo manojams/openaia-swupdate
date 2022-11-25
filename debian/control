@@ -6,6 +6,7 @@ Uploaders: SZ Lin (林上智) <szlin@debian.org>,
            Nobuhiro Iwamatsu <iwamatsu@debian.org>
 Build-Depends: debhelper-compat (= 13),
                dh-lua:native <!nolua>,
+               dh-nodejs,
                liblua5.3-dev <!nolua>,
                libfdisk-dev,
                latexmk <!nodoc> | latexmk:native <!nodoc>,
@@ -15,6 +16,8 @@ Build-Depends: debhelper-compat (= 13),
                libblkid-dev,
                libext2fs-dev,
                libgpiod-dev [linux-any],
+               libjs-bootstrap4,
+               libjs-dropzone,
                libjson-c-dev,
                librsync-dev,
                libssl-dev,
@@ -32,8 +35,10 @@ Build-Depends: debhelper-compat (= 13),
                libubootenv-dev [linux-any],
                libebgenv-dev [any-amd64 any-i386 any-arm64 armhf any-riscv64 any-ia64] <!pkg.swupdate.bpo>,
                libcmocka-dev,
+               node-jquery,
                pkg-config,
                gawk,
+               sassc,
                sphinx <!nodoc> | python3-sphinx:native <!nodoc>,
                texlive-latex-recommended <!nodoc>,
                texlive-fonts-recommended <!nodoc>,
@@ -51,6 +56,30 @@ Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Built-Using: ${Built-Using}
 Description: Software update framework for embedded systems
+ swupdate is a Linux update agent with the goal to provide an efficient and
+ safe way to update an embedded system.
+ .
+  - Install on embedded media (eMMC, SD, Raw NAND, NOR and SPI-NOR flashes)
+  - Allow delivery single image for multiple devices
+  - Multiple interfaces for getting software
+    1. local storage
+    2. integrated web server
+    3. integrated REST client connector to hawkBit
+    4. remote server download
+  - Software delivered as images, gzipped tarball, etc
+  - Allow custom handlers for installing FPGA/ microcontroller firmware.
+  - Power-Off safe
+
+Package: swupdate-www
+Architecture: all
+Depends: ${misc:Depends},
+         fonts-fork-awesome,
+         libjs-bootstrap4,
+         libjs-dropzone,
+         node-jquery
+Description: Web Application for swupdate
+ This package contains a web application for swupdate.
+ .
  swupdate is a Linux update agent with the goal to provide an efficient and
  safe way to update an embedded system.
  .

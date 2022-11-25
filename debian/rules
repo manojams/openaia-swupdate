@@ -62,6 +62,8 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
 endif
 	dh_auto_build -- V=1
+	cd web-app && pkgjs-install-minimal
+	sassc web-app/scss/bootstrap.scss > web-app/css/bootstrap.css
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
