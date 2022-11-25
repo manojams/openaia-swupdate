@@ -6,7 +6,7 @@ Uploaders: SZ Lin (林上智) <szlin@debian.org>,
            Nobuhiro Iwamatsu <iwamatsu@debian.org>
 Build-Depends: debhelper-compat (= 13),
                dh-lua:native <!nolua>,
-               dh-nodejs,
+               dh-nodejs | dh-nodejs:any,
                liblua5.3-dev <!nolua>,
                libfdisk-dev,
                latexmk <!nodoc> | latexmk:native <!nodoc>,
@@ -17,7 +17,7 @@ Build-Depends: debhelper-compat (= 13),
                libext2fs-dev,
                libgpiod-dev [linux-any],
                libjs-bootstrap4,
-               libjs-dropzone,
+               libjs-dropzone:native,
                libjson-c-dev,
                librsync-dev,
                libssl-dev,
@@ -39,11 +39,11 @@ Build-Depends: debhelper-compat (= 13),
                pkg-config,
                gawk,
                sassc,
-               sphinx <!nodoc> | python3-sphinx:native <!nodoc>,
+               python3-sphinx:native <!nodoc>,
                texlive-latex-recommended <!nodoc>,
                texlive-fonts-recommended <!nodoc>,
                tex-gyre <!nodoc>,
-               texlive-formats-extra <!nodoc>
+               texlive-formats-extra <!nodoc> | texlive-formats-extra:native <!nodoc>
 Standards-Version: 4.6.0.1
 Rules-Requires-Root: no
 Homepage: https://sbabic.github.io/swupdate
