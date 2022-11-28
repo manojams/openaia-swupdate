@@ -87,6 +87,8 @@ override_dh_installsystemd:
 ifeq (linux,$(DEB_BUILD_ARCH_OS))
 override_dh_gencontrol:
 	dh_gencontrol -- -VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libmtd-dev libubi-dev)"
+	# Bootstrap's scss file is derived from
+	dh_gencontrol -- -VB-U-www="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libjs-bootstrap4)"
 endif
 
 override_dh_dwz:

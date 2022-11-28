@@ -77,6 +77,7 @@ Depends: ${misc:Depends},
          libjs-bootstrap4,
          libjs-dropzone,
          node-jquery
+Built-Using: ${B-U-www}
 Description: Web Application for swupdate
  This package contains a web application for swupdate.
  .
