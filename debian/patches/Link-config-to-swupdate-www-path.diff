@@ -1,0 +1,21 @@
+From: Bastian Germann <bage@debian.org>
+Date: Mon, 28 Nov 2022 23:25:59 +0100
+Subject: example: Link config to swupdate-www path
+
+---
+ examples/configuration/swupdate.cfg | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/examples/configuration/swupdate.cfg b/examples/configuration/swupdate.cfg
+index db63110..42b15eb 100644
+--- a/examples/configuration/swupdate.cfg
++++ b/examples/configuration/swupdate.cfg
+@@ -254,7 +254,7 @@ suricatta :
+ 
+ webserver :
+ {
+-	document_root = "./www";
++	document_root	= "/usr/share/swupdate/www";
+ 	userid		= 1000;
+ 	groupid		= 1000;
+ 	timeout		= 20;
