@@ -65,9 +65,11 @@ endif
 
 	# Build web-app without gulp
 	cd web-app && pkgjs-install-minimal
-	sassc web-app/scss/bootstrap.scss > web-app/css/bootstrap.css
+ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
+	sassc -Iweb-app web-app/scss/bootstrap.scss > web-app/css/bootstrap.css
 	# replace rule from gulp's minify-html
 	sed -i 's|node_modules/bootstrap/dist/css|css|' web-app/index.html
+endif
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
@@ -87,8 +89,12 @@ override_dh_installsystemd:
 ifeq (linux,$(DEB_BUILD_ARCH_OS))
 override_dh_gencontrol:
 	dh_gencontrol -- -VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libmtd-dev libubi-dev)"
+
+ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	# Bootstrap's scss file is derived from
 	dh_gencontrol -- -VB-U-www="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libjs-bootstrap4)"
+endif
+
 endif
 
 override_dh_dwz:
