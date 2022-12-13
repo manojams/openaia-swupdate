@@ -5,8 +5,12 @@ Source: https://github.com/sbabic/swupdate
 Files-Excluded: examples/www
 
 Files:     *
-Copyright: 2013-2021 Stefano Babic <sbabic@denx.de>
+Copyright: 2013-2022 Stefano Babic <sbabic@denx.de>
 License:   GPL-2
+
+Files:     .checkpatch.conf
+Copyright: Fabio Estevam <festevam@gmail.com>
+License:   MIT
 
 Files:     .editorconfig
 Copyright: 2019 Adrian Freihofer <adrian.freihofer@siemens.com>
@@ -56,17 +60,16 @@ Files:     core/syslog.c
 Copyright: 2016, Denis Osterland, Diehl Connectivity Solutions GmbH, Denis.Osterland@diehl.com.
 License:   GPL-2
 
-Files:     mongoose/mongoose.c
-           mongoose/mongoose.h
+Files:     mongoose/mongoose*
 Copyright: 2004-2013 Sergey Lyubka
-           2013-2020 Cesanta Software Limited
+           2013-2022 Cesanta Software Limited
 License:   GPL-2
 
 Files:     mongoose/mongoose_interface.c
 Copyright: 2004-2013 Sergey Lyubka
            2013 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
            2017-2018 Weidmüller Interface GmbH & Co. KG, Stefan Herbrechtsmeier <stefan.herbrechtsmeier@weidmueller.com>
-License:   MIT and GPL-2
+License:   GPL-2
 
 Files:     core/swupdate_dict.c
 Copyright: 2016 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
@@ -158,6 +161,7 @@ Files:     test/Makefile
            test/test_crypt.c
            test/test_json.c
            test/test_server_hawkbit.c
+           bindings/lua_swupdate.lua
 Copyright: 2016-2017 Siemens AG, Christian Storm <christian.storm@siemens.com>
 License:   GPL-2+
 
@@ -179,6 +183,14 @@ Files:     scripts/acceptance-tests/Makefile
            scripts/acceptance-tests/CheckImage.mk
 Copyright: 2016 Diehl Connectivity Solutions GmbH, Denis Osterland <Denis.Osterland@diehl.com>
 License:   GPL-2+
+
+Files:     scripts/checkpatch.pl
+Copyright: 2001, Dave Jones. (the file handling bit)
+           2005, Joel Schopp <jschopp@austin.ibm.com> (the ugly bit)
+           2007,2008, Andy Whitcroft <apw@uk.ibm.com> (new conditions, test suite)
+           2008-2010 Andy Whitcroft <apw@canonical.com>
+           2010-2018 Joe Perches <joe@perches.com>
+License:   GPL-2
 
 Files:     scripts/kconfig/*
 Copyright: 2002 Roman Zippel <zippel@linux-m68k.org>
@@ -291,6 +303,12 @@ Copyright: 2018 Stefano Babic <sbabic@denx.de>
            2021 Blueye Robotics AS
 License:   GPL-2
 
+Files:     examples/suricatta/*
+           handlers/swupdate.lua
+           suricatta/*lua*
+Copyright: 2022, Siemens AG
+License:   GPL-2+
+
 Files: web-app/images/favicon.png
 Copyright: 2016 Andres Babic <andres.babic@gmail.com>
 License: CC-BY-SA-4.0
@@ -339,7 +357,8 @@ Files:     debian/swupdate.init
            debian/swupdate.socket
            debian/swupdate.tmpfiles
            debian/examples/*
-Copyright: 2015, 2017 Stefano Babic <sbabic@denx.de>
+           scripts/const_structs.checkpatch
+Copyright: 2015, 2017, 2022 Stefano Babic <sbabic@denx.de>
 License:   MIT
 
 License:   LGPL-2.1+
