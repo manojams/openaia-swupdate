@@ -1,3 +1,14 @@
+swupdate (2022.12+dfsg-1) UNRELEASED; urgency=medium
+
+  * New upstream version 2022.12
+  * Add replace rule from gulp's minify-html
+  * Make Build-Depends cross-installable
+  * Add Built-Using for swupdate-www
+  * Patch: Link config to swupdate-www path
+  * Drop unneeded patch
+
+ -- Bastian Germann <bage@debian.org>  Tue, 13 Dec 2022 21:06:18 +0100
+
 swupdate (2022.05+dfsg-1) experimental; urgency=medium
 
   * Add lintian error overrides
