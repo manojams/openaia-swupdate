@@ -1,4 +1,4 @@
-swupdate (2022.12+dfsg-1) UNRELEASED; urgency=medium
+swupdate (2022.12+dfsg-1) unstable; urgency=medium
 
   * New upstream version 2022.12
   * Add replace rule from gulp's minify-html
@@ -6,8 +6,11 @@ swupdate (2022.12+dfsg-1) UNRELEASED; urgency=medium
   * Add Built-Using for swupdate-www
   * Patch: Link config to swupdate-www path
   * Drop unneeded patch
+  * Add B-D graphviz
+  * d/copyright: Amend with new version's info
+  * Fix lintian notices
 
- -- Bastian Germann <bage@debian.org>  Tue, 13 Dec 2022 21:06:18 +0100
+ -- Bastian Germann <bage@debian.org>  Tue, 13 Dec 2022 23:56:54 +0100
 
 swupdate (2022.05+dfsg-1) experimental; urgency=medium
 
