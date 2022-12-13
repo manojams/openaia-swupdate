@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -52,6 +55,12 @@ extern const char EMBEDDED_LUA_SRC_END[];
 	lua_pushnumber(L, (double)img->field);	\
 	lua_settable(L, -3);			\
 } while (0)
+
+typedef void (*stat_push_function) (lua_State *L, struct stat *info);
+struct stat_fields {
+	const char *name;
+	stat_push_function push;
+};
 
 #ifdef CONFIG_HANDLER_IN_LUA
 static int l_register_handler( lua_State *L );
@@ -945,6 +954,27 @@ static int l_progress_update(lua_State *L)
 }
 #endif
 
+static int l_get_hw(lua_State *L)
+{
+	struct swupdate_cfg *cfg = get_swupdate_cfg();
+
+	if (get_hw_revision(&cfg->hw) < 0)
+		goto l_get_hw_exit;
+
+	lua_newtable (L);
+	lua_pushstring(L, "boardname");
+	lua_pushstring(L, cfg->hw.boardname);
+	lua_settable(L, -3);
+	lua_pushstring(L, "revision");
+	lua_pushstring(L, cfg->hw.revision);
+	lua_settable(L, -3);
+	return 1;
+
+l_get_hw_exit:
+	lua_pushnil(L);
+	return 1;
+}
+
 static void lua_push_enum(lua_State *L, const char *name, int value)
 {
 	lua_pushstring(L, name);
@@ -952,7 +982,7 @@ static void lua_push_enum(lua_State *L, const char *name, int value)
 	lua_settable(L, -3);
 }
 
-static int l_getversion(lua_State *L)
+int lua_get_swupdate_version(lua_State *L)
 {
 	unsigned int version = 0, patchlevel = 0;
 	/* Deliberately ignore sublevel and extraversion. */
@@ -972,13 +1002,173 @@ static int l_getversion(lua_State *L)
 	return 1;
 }
 
+/*
+ * permssions string - convert st_mode
+ * into a rwx string.
+ *
+ */
+static void push_st_perm (lua_State *L, struct stat *info) {
+	char perms[10];
+	mode_t mode = info->st_mode;
+
+	memset(perms, '-', sizeof(perms) - 1);
+	perms[9] = '\0';
+	if (mode & S_IRUSR) perms[0] = 'r';
+	if (mode & S_IWUSR) perms[1] = 'w';
+	if (mode & S_IXUSR) perms[2] = 'x';
+	if (mode & S_IRGRP) perms[3] = 'r';
+	if (mode & S_IWGRP) perms[4] = 'w';
+	if (mode & S_IXGRP) perms[5] = 'x';
+	if (mode & S_IROTH) perms[6] = 'r';
+	if (mode & S_IWOTH) perms[7] = 'w';
+	if (mode & S_IXOTH) perms[8] = 'x';
+
+	lua_pushstring (L, perms);
+}
+
+static const char *mode2string (mode_t mode)
+{
+	switch (mode & S_IFMT) {
+		case S_IFDIR:
+			return "directory";
+		case S_IFIFO:
+			return "named pipe";
+		case S_IFLNK:
+			return "link";
+		case S_IFREG:
+			return "regular file";
+		case S_IFSOCK:
+			return "socket";
+		case S_IFBLK:
+			return "block device";
+		case S_IFCHR:
+			return "char device";
+		default:
+			return "unknown";
+	}
+}
+
+/*
+ * Push a new table with major and minor fields
+ */
+static void push_device(lua_State *L, dev_t dev) {
+	lua_newtable (L);
+        lua_pushstring (L, "major");
+        lua_pushinteger (L, (lua_Integer) major(dev));
+        lua_settable(L, -3);
+        lua_pushstring (L, "minor");
+        lua_pushinteger (L, (lua_Integer) minor(dev));
+        lua_settable(L, -3);
+}
+
+/* Inode type */
+static void push_st_mode(lua_State *L, struct stat *info) {
+        lua_pushstring (L, mode2string (info->st_mode));
+}
+
+/* device inode resides on */
+static void push_st_dev(lua_State *L, struct stat *info) {
+	push_device(L, info->st_dev);
+}
+
+/* inode's number */
+static void push_st_ino (lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer) info->st_ino);
+}
+
+/* number of hard links to the file */
+static void push_st_nlink(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_nlink);
+}
+
+/* user-id of owner */
+static void push_st_uid(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_uid);
+}
+
+/* group-id of owner */
+static void push_st_gid(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_gid);
+}
+
+/* device type, for special file inode */
+static void push_st_rdev(lua_State *L, struct stat *info) {
+	push_device(L, info->st_rdev);
+}
+/* time of last access */
+static void push_st_atime(lua_State *L, struct stat *info) {
+        lua_pushstring(L, ctime(&info->st_atime));
+}
+/* time of last data modification */
+static void push_st_mtime(lua_State *L, struct stat *info) {
+        lua_pushstring(L, ctime(&info->st_mtime));
+}
+/* time of last file status change */
+static void push_st_ctime(lua_State *L, struct stat *info) {
+        lua_pushstring(L, ctime(&info->st_ctime));
+}
+/* file size, in bytes */
+static void push_st_size(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_size);
+}
+/* blocks allocated for file */
+static void push_st_blocks(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_blocks);
+}
+/* optimal file system I/O blocksize */
+static void push_st_blksize(lua_State *L, struct stat *info) {
+        lua_pushinteger(L, (lua_Integer)info->st_blksize);
+}
+
+struct stat_fields statfields[] = {
+        { "mode",         push_st_mode },
+        { "dev",          push_st_dev },
+        { "ino",          push_st_ino },
+        { "nlink",        push_st_nlink },
+        { "uid",          push_st_uid },
+        { "gid",          push_st_gid },
+        { "rdev",         push_st_rdev },
+        { "access",       push_st_atime },
+        { "modification", push_st_mtime },
+        { "change",       push_st_ctime },
+        { "size",         push_st_size },
+        { "permissions",  push_st_perm },
+        { "blocks",       push_st_blocks },
+        { "blksize",      push_st_blksize },
+        { NULL, NULL }
+};
+
+static int l_stat(lua_State *L)
+{
+	struct stat st;
+        const char *file = luaL_checkstring (L, 1);
+
+	/* Clean up stack */
+	lua_pop(L, 1);
+        if (stat(file, &st)) {
+                lua_pushnil(L);
+		return 1;
+	}
+	/*
+	 * Return a table with all value
+	 */
+	lua_newtable (L);
+        /* stores all members in table on top of the stack */
+        for (int i = 0; statfields[i].name; i++) {
+                lua_pushstring (L, statfields[i].name);
+                statfields[i].push(L, &st);
+                lua_settable(L, -3);
+        }
+        return 1;
+}
+
 /**
  * @brief Dispatch a message to the progress interface.
  *
  * @param [Lua] Message to dispatch to progress interface.
  * @return [Lua] nil.
  */
-static int l_notify_progress(lua_State *L) {
+int lua_notify_progress(lua_State *L) {
   /*
    * NOTE: level is INFOLEVEL for the sake of specifying a level.
    * It is unused in core/notifier.c :: progress_notifier() as the
@@ -1000,10 +1190,12 @@ static const luaL_Reg l_swupdate[] = {
         { "warn", lua_notify_warn },
         { "debug", lua_notify_debug },
         { "mount", l_mount },
+        { "stat", l_stat },
         { "umount", l_umount },
         { "getroot", l_getroot },
-        { "getversion", l_getversion },
-        { "progress", l_notify_progress },
+        { "get_hw", l_get_hw },
+        { "getversion", lua_get_swupdate_version },
+        { "progress", lua_notify_progress },
         { NULL, NULL }
 };
 
@@ -1105,7 +1297,7 @@ static lua_State *gL = NULL;
  * @param unused [in] unused in this context
  * @param data [in] pointer to the index in the Lua registry for the function
  * @param scriptfn [in] installation phase for script handlers, or NONE
- * @return This function returns 0 if successful and -1 if unsuccessful.
+ * @return This function returns 0 if successful and != 0 otherwise.
  */
 static int l_handler_wrapper(struct img_type *img, void *data,
 			     script_fn scriptfn) {
@@ -1149,12 +1341,14 @@ static int l_handler_wrapper(struct img_type *img, void *data,
 	if (LUA_OK != (res = lua_pcall(gL, 2, 1, 0))) {
 		ERROR("Error %d while executing the Lua callback: %s",
 			  res, lua_tostring(gL, -1));
+		lua_pop(gL, 1);
 		return -1;
 	}
 
 	 /* retrieve result */
 	if (!lua_isnumber(gL, -1)) {
-		printf(" Lua Handler must return a number");
+		ERROR("Lua Handler must return a number");
+		lua_pop(gL, 1);
 		return -1;
 	}
 

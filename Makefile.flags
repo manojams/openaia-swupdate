@@ -5,8 +5,8 @@
 # ==========================================================================
 # Build system
 # ==========================================================================
-
-SWU_VER = $(shell git describe --tags --always --dirty)
+SWU_DIR = $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+SWU_VER = $(shell git -C $(SWU_DIR) describe --tags --always --dirty)
 export SWU_VER
 SKIP_STRIP ?= n
 
@@ -231,6 +231,18 @@ else ifeq ($(CONFIG_BOOTLOADER_DEFAULT_EBG),y)
 KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="ebg"
 else
 KBUILD_CPPFLAGS += -DBOOTLOADER_DEFAULT="none"
+endif
+
+ifneq ($(CONFIG_SURICATTA),)
+ifneq ($(CONFIG_SURICATTA_LUA),)
+ifneq ($(CONFIG_EMBEDDED_SURICATTA_LUA),)
+ifneq ($(CONFIG_EMBEDDED_SURICATTA_LUA_SOURCE),)
+LDFLAGS_swupdate += -Wl,--format=binary -Wl,$(CONFIG_EMBEDDED_SURICATTA_LUA_SOURCE) -Wl,--format=default
+KBUILD_CPPFLAGS += -DEMBEDDED_SURICATTA_LUA_SOURCE_START="_binary_$(subst ",,$(subst .,_,$(subst /,_,$(CONFIG_EMBEDDED_SURICATTA_LUA_SOURCE))))_start"
+KBUILD_CPPFLAGS += -DEMBEDDED_SURICATTA_LUA_SOURCE_END="_binary_$(subst ",,$(subst .,_,$(subst /,_,$(CONFIG_EMBEDDED_SURICATTA_LUA_SOURCE))))_end"	
+endif
+endif
+endif
 endif
 
 # SWU forwarder

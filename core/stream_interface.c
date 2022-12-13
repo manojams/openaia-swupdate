@@ -117,6 +117,23 @@ static int extract_file_to_tmp(int fd, const char *fname, unsigned long *poffs, 
 	return 0;
 }
 
+static bool update_transaction_state(struct swupdate_cfg *software, update_state_t newstate)
+{
+	if (!software->parms.dry_run && software->bootloader_transaction_marker) {
+		if (newstate == STATE_INSTALLED)
+			bootloader_env_unset(BOOTVAR_TRANSACTION);
+		else
+			bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(newstate));
+	}
+	if (!software->parms.dry_run
+	    && software->bootloader_state_marker
+	    && save_state(newstate) != SERVER_OK) {
+		WARN("Cannot persistently store %s update state.", get_state_string(newstate));
+		return false;
+	}
+	return true;
+}
+
 static int extract_files(int fd, struct swupdate_cfg *software)
 {
 	int status = STREAM_WAIT_DESCRIPTION;
@@ -254,9 +271,7 @@ static int extract_files(int fd, struct swupdate_cfg *software)
 				 * just once
 				 */
 				if (!installed_directly) {
-					if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-						bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(STATE_IN_PROGRESS));
-					}
+					update_transaction_state(software, STATE_IN_PROGRESS);
 					installed_directly = true;
 				}
 
@@ -495,23 +510,6 @@ no_copy_output:
 	return ret;
 }
 
-static bool update_transaction_state(struct swupdate_cfg *software, update_state_t newstate)
-{
-	if (!software->parms.dry_run && software->bootloader_transaction_marker) {
-		if (newstate == STATE_INSTALLED)
-			bootloader_env_unset(BOOTVAR_TRANSACTION);
-		else
-			bootloader_env_set(BOOTVAR_TRANSACTION, get_state_string(newstate));
-	}
-	if (!software->parms.dry_run
-	    && software->bootloader_state_marker
-	    && save_state(newstate) != SERVER_OK) {
-		WARN("Cannot persistently store %s update state.", get_state_string(newstate));
-		return false;
-	}
-	return true;
-}
-
 void *network_initializer(void *data)
 {
 	int ret;
@@ -613,6 +611,40 @@ void *network_initializer(void *data)
 		if (!(inst.fd < 0))
 			close(inst.fd);
 
+		if (!software->parms.dry_run && is_bootloader(BOOTLOADER_EBG)) {
+			if (!software->bootloader_transaction_marker) {
+				/*
+				 * EFI Boot Guard's "in_progress" environment variable
+				 * has special semantics hard-coded, hence the
+				 * bootloader transaction marker cannot be disabled.
+				 */
+				TRACE("Note: Setting EFI Boot Guard's 'in_progress' "
+				      "environment variable cannot be disabled.");
+			}
+			if (!software->bootloader_state_marker) {
+				/*
+				 * With a disabled update state marker, there's no
+				 * transaction auto-commit via
+				 *   save_state(STATE_INSTALLED)
+				 * which effectively calls
+				 *   bootloader_env_set(STATE_KEY, STATE_INSTALLED).
+				 * Hence, manually calling save_state(STATE_INSTALLED)
+				 * or equivalent is required to commit the transaction.
+				 * This can be useful to, e.g., terminate the transaction
+				 * from an according progress interface client or an
+				 * SWUpdate suricatta module after it has received an
+				 * update activation request from the remote server.
+				 */
+				TRACE("Note: EFI Boot Guard environment transaction "
+				      "will not be auto-committed.");
+			}
+			if (!software->bootloader_transaction_marker &&
+			    !software->bootloader_state_marker) {
+				WARN("EFI Boot Guard environment modifications will "
+				     "not be persisted.");
+			}
+		}
+
 		/* do carry out the installation (flash programming) */
 		if (ret == 0) {
 			TRACE("Valid image found: copying to FLASH");
@@ -649,6 +681,7 @@ void *network_initializer(void *data)
 			notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Image invalid or corrupted. Not installing ...");
 		}
 
+		swupdate_progress_inc_step("", "");
 		swupdate_progress_end(inst.last_install);
 
 		/*

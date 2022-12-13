@@ -979,6 +979,10 @@ static char *getroot_abs_path(char* devname)
 {
 	int fd;
 	char *path;
+
+	if (!devname)
+		return NULL;
+
 	if ((path = realpath(devname, NULL))) {
 		if ((fd = open(path, O_RDWR | O_CLOEXEC)) != -1) {
 			(void)close(fd);
@@ -1058,6 +1062,8 @@ static char *get_root_from_mountinfo(void)
 	char *mnt_point, *device = NULL;
 	unsigned int dev_major, dev_minor;
 	FILE *fp = fopen("/proc/self/mountinfo", "r");
+	if (!fp)
+		return NULL;
 	while (fp && !feof(fp)) {
 		/* format: https://www.kernel.org/doc/Documentation/filesystems/proc.txt */
 		if (fscanf(fp, "%*s %*s %u:%u %*s %ms %*s %*[-] %*s %ms %*s",
@@ -1120,6 +1126,8 @@ static char *get_root_from_cmdline(void)
 
 	if (ret > 0) {
 		parms = string_split(buf, ' ');
+		if (!parms)
+			goto out;
 		int nparms = count_string_array((const char **)parms);
 		for (unsigned int index = 0; index < nparms; index++) {
 			if (!strncmp(parms[index], "root=", strlen("root="))) {
@@ -1132,6 +1140,7 @@ static char *get_root_from_cmdline(void)
 			}
 		}
 	}
+out:
 	fclose(fp);
 	free_string_array(parms);
 	free(buf);
@@ -1181,6 +1190,8 @@ int read_lines_notify(int fd, char *buf, int buf_size, int *buf_offset,
 	}
 
 	char **lines = string_split(buf, '\n');
+	if (!lines)
+		return -errno;
 	int nlines = count_string_array((const char **)lines);
 	/*
 	 * If the buffer is full and there is only one line,
@@ -1268,15 +1279,17 @@ static bool check_free_space(int fd, long long size, char *fname)
 #define fstatvfs fstatfs
 #endif
 	struct statvfs statvfs;
+	unsigned long long free_space;
 
 	if (fstatvfs(fd, &statvfs)) {
 		ERROR("Statfs failed on %s, skipping free space check", fname);
 		return true;
 	}
+	free_space = (unsigned long long)statvfs.f_bfree * statvfs.f_bsize;
 
-	if (statvfs.f_bfree * statvfs.f_bsize < size) {
+	if (free_space < size) {
 		ERROR("Not enough free space to extract %s (needed %llu, got %llu)",
-		       fname, size, (unsigned long long)statvfs.f_bfree * statvfs.f_bsize);
+		       fname, size, free_space);
 		return false;
 	}
 
