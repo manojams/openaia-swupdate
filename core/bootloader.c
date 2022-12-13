@@ -25,7 +25,7 @@ static unsigned int num_available = 0;
 
 int register_bootloader(const char *name, bootloader *bl)
 {
-	entry *tmp = reallocarray(available, num_available + 1, sizeof(entry));
+	entry *tmp = realloc(available, (num_available + 1) * sizeof(entry));
 	if (!tmp) {
 		return -ENOMEM;
 	}
@@ -55,6 +55,13 @@ int set_bootloader(const char *name)
 	return -ENOENT;
 }
 
+bool is_bootloader(const char *name) {
+	if (!name || !current) {
+		return false;
+	}
+	return strcmp(current->name, name) == 0;
+}
+
 const char* get_bootloader(void)
 {
 	return current ? current->name : NULL;
@@ -62,9 +69,9 @@ const char* get_bootloader(void)
 
 void print_registered_bootloaders(void)
 {
-	INFO("Registered bootloaders:");
+	TRACE("Registered bootloaders:");
 	for (unsigned int i = 0; i < num_available; i++) {
-		INFO("\t%s\t%s", available[i].name,
+		TRACE("\t%s\t%s", available[i].name,
 		     available[i].funcs == NULL ? "shared lib not found."
 						: "loaded.");
 	}

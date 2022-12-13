@@ -261,6 +261,9 @@ int listener_create(const char *path, int type)
 			WARN("chmod cannot be set on socket, error %s", strerror(errno));
 	}
 
+	if (fcntl(listenfd, F_SETFD, FD_CLOEXEC) < 0)
+		WARN("Could not set %d as cloexec: %s", listenfd, strerror(errno));
+
 	if (type == SOCK_STREAM)
 		if (listen(listenfd, LISTENQ) < 0) {
 			close(listenfd);
@@ -310,7 +313,7 @@ static void empty_pipe(int fd)
 static void unlink_socket(void)
 {
 #ifdef CONFIG_SYSTEMD
-	if (sd_booted() && sd_listen_fds(0) > 0) {
+	if (sd_booted()) {
 		/*
 		 * There were socket fds handed-over by systemd,
 		 * so don't delete the socket file.
@@ -447,6 +450,7 @@ void *network_thread (void *data)
 	update_state_t value;
 	struct subprocess_msg_elem *subprocess_msg;
 	bool should_close_socket;
+	struct swupdate_cfg *cfg;
 
 	if (!instp) {
 		TRACE("Fatal error: Network thread aborting...");
@@ -463,7 +467,7 @@ void *network_thread (void *data)
 	/* Initialize and bind to UDS */
 	ctrllisten = listener_create(get_ctrl_socket(), SOCK_STREAM);
 	if (ctrllisten < 0 ) {
-		TRACE("Error creating IPC sockets");
+		ERROR("Error creating IPC control socket");
 		exit(2);
 	}
 
@@ -483,6 +487,9 @@ void *network_thread (void *data)
 				continue;
 			}
 		}
+		if (fcntl(ctrlconnfd, F_SETFD, FD_CLOEXEC) < 0)
+			WARN("Could not set %d as cloexec: %s", ctrlconnfd, strerror(errno));
+
 		nread = read(ctrlconnfd, (void *)&msg, sizeof(msg));
 
 		if (nread != sizeof(msg)) {
@@ -547,6 +554,7 @@ void *network_thread (void *data)
 						 * Prepare answer
 						 */
 						msg.type = ACK;
+						memset(msg.data.msg, 0, sizeof(msg.data.msg));
 						should_close_socket = false;
 
 						/* Drop all old notification from last run */
@@ -554,9 +562,10 @@ void *network_thread (void *data)
 
 						/* Wake-up the installer */
 						pthread_cond_signal(&stream_wkup);
-					} else
+					} else {
 						msg.type = NACK;
-
+						memset(msg.data.msg, 0, sizeof(msg.data.msg));
+					}
 				} else {
 					msg.type = NACK;
 					sprintf(msg.data.msg, "Installation in progress");
@@ -652,6 +661,21 @@ void *network_thread (void *data)
 				set_version_range(msg.data.versions.minimum_version,
 						  msg.data.versions.maximum_version,
 						  msg.data.versions.current_version);
+				break;
+			case GET_HW_REVISION:
+				cfg = get_swupdate_cfg();
+				if (get_hw_revision(&cfg->hw) < 0) {
+					msg.type = NACK;
+					memset(msg.data.msg, 0, sizeof(msg.data.msg));
+					break;
+				}
+				msg.type = ACK;
+				memset(msg.data.revisions.boardname, 0, sizeof(msg.data.revisions.boardname));
+				strncpy(msg.data.revisions.boardname, cfg->hw.boardname,
+					sizeof(msg.data.revisions.boardname) - 1);
+				memset(msg.data.revisions.revision, 0, sizeof(msg.data.revisions.revision));
+				strncpy(msg.data.revisions.revision, cfg->hw.revision,
+					sizeof(msg.data.revisions.revision) - 1);
 				break;
 			case SET_UPDATE_STATE:
 				value = *(update_state_t *)msg.data.msg;

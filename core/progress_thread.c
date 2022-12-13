@@ -154,7 +154,7 @@ void swupdate_download_update(unsigned int perc, unsigned long long totalbytes)
 	_swupdate_download_update(perc, totalbytes);
 }
 
-void swupdate_progress_inc_step(char *image, char *handler_name)
+void swupdate_progress_inc_step(const char *image, const char *handler_name)
 {
 	struct swupdate_progress *pprog = &progress;
 	pthread_mutex_lock(&pprog->lock);
@@ -225,7 +225,7 @@ void swupdate_progress_done(const char *info)
 static void unlink_socket(void)
 {
 #ifdef CONFIG_SYSTEMD
-	if (sd_booted() && sd_listen_fds(0) > 0) {
+	if (sd_booted()) {
 		/*
 		 * There were socket fds handed-over by systemd,
 		 * so don't delete the socket file.
@@ -270,6 +270,9 @@ void *progress_bar_thread (void __attribute__ ((__unused__)) *data)
 				continue;
 			}
 		}
+
+		if (fcntl(connfd, F_SETFD, FD_CLOEXEC) < 0)
+			WARN("Could not set %d as cloexec: %s", connfd, strerror(errno));
 
 		/*
 		 * Save the new connection to be handled by the progress thread

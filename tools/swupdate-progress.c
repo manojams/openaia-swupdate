@@ -18,6 +18,8 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/select.h>
+#include <sys/reboot.h>
+#include <linux/reboot.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
@@ -247,11 +249,12 @@ int main(int argc, char **argv)
 		}
 	}
 		
-	rundir = getenv("PSPLASH_FIFO_DIR");
-	if (!rundir)
-		rundir = "/run";
-	snprintf(psplash_pipe_path, sizeof(psplash_pipe_path), "%s/psplash_fifo", rundir);
-
+	if (opt_p) {
+		rundir = getenv("PSPLASH_FIFO_DIR");
+		if (!rundir)
+			rundir = "/run";
+		snprintf(psplash_pipe_path, sizeof(psplash_pipe_path), "%s/psplash_fifo", rundir);
+	}
 	connfd = -1;
 	while (1) {
 		if (connfd < 0) {
@@ -379,7 +382,8 @@ int main(int argc, char **argv)
 			psplash_ok = 0;
 			if ((msg.status == SUCCESS) && (msg.cur_step > 0) && opt_r) {
 				sleep(5);
-				if (system("reboot") < 0) { /* It should never happen */
+				sync();
+				if (reboot(LINUX_REBOOT_CMD_RESTART) < 0) { /* It should never happen */
 					fprintf(stdout, "Please reset the board.\n");
 				}
 			}

@@ -52,7 +52,6 @@ static int grubenv_open(struct grubenv_t *grubenv)
 	buf = calloc(1, size + 1);
 	if (!buf) {
 		ERROR("Not enough memory for environment");
-		fclose(fp);
 		ret = -ENOMEM;
 		goto cleanup;
 	}
@@ -354,5 +353,5 @@ static bootloader grub = {
 __attribute__((constructor))
 static void grub_probe(void)
 {
-	(void)register_bootloader("grub", &grub);
+	(void)register_bootloader(BOOTLOADER_GRUB, &grub);
 }

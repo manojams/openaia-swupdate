@@ -33,6 +33,9 @@ int lua_notify_error(lua_State *L);
 int lua_notify_info(lua_State *L);
 int lua_notify_warn(lua_State *L);
 int lua_notify_debug(lua_State *L);
+int lua_notify_progress(lua_State *L);
+
+int lua_get_swupdate_version(lua_State *L);
 
 #define lua_parser_exit(L) lua_close((lua_State *)L)
 
