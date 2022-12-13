@@ -1,4 +1,0 @@
-# source is available in web-app/js/index.html
-source-is-missing [examples/www/v2/index.html]
-# source is available in web-app/js/swupdate.js
-source-is-missing [examples/www/v2/js/swupdate.min.js]
