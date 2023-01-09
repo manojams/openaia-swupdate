@@ -7,10 +7,6 @@ Build a backport friendly version of the package with some default features
 disabled that would require unavailable dependencies.
 Currently this targets bullseye.
 
-pkg.swupdate.p11
-Enable using PKCS#11 for AES decryption
-instead of having the plain key available in a file.
-
 pkg.swupdate.nohwcompat
 Disable the comparison with the hardware compatibility file /etc/hwrevision.
 
