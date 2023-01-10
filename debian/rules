@@ -17,9 +17,18 @@ export DH_WITH=--with lua
 export HAVE_LUA=y
 endif
 
+BU_SWU=
+ifeq (linux,$(DEB_HOST_ARCH_OS))
+	BU_SWU += -VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libmtd-dev libubi-dev)"
+endif
+ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
+	# Bootstrap's scss file is derived from
+	BU_SWU += -VB-U-www="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libjs-bootstrap4)"
+endif
+
 override_dh_auto_configure:
 	cp debian/configs/defconfig  configs/debian_defconfig
-ifeq (linux,$(DEB_BUILD_ARCH_OS))
+ifeq (linux,$(DEB_HOST_ARCH_OS))
 	echo CONFIG_UBOOT=y                >> configs/debian_defconfig
 	echo CONFIG_UCFWHANDLER=y          >> configs/debian_defconfig
 	echo CONFIG_CFI=y                  >> configs/debian_defconfig
@@ -83,16 +92,8 @@ override_dh_installsystemd:
 	dh_installsystemd --name=swupdate-progress
 	dh_installsystemd --no-start --name=swupdate-usb@
 
-ifeq (linux,$(DEB_BUILD_ARCH_OS))
 override_dh_gencontrol:
-	dh_gencontrol -- -VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libmtd-dev libubi-dev)"
-
-ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
-	# Bootstrap's scss file is derived from
-	dh_gencontrol -- -VB-U-www="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W libjs-bootstrap4)"
-endif
-
-endif
+	dh_gencontrol -- $(BU_SWU)
 
 override_dh_dwz:
 	dh_dwz --no-dwz-multifile
