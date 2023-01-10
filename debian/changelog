@@ -1,3 +1,14 @@
+swupdate (2022.12+dfsg-2) unstable; urgency=medium
+
+  * Remove the pkcs11 build profile pkg.swupdate.p11
+  * Fix Built-Using after swupdate-www's introduction
+
+  [ Quirin Gylstorff ]
+  * d/configs/defconfig: Add CONFIG_SURICATTA_LUA
+  * d/configs/defconfig: Add CONFIG_CMS_SKIP_UNKOWN_SIGNERS
+
+ -- Bastian Germann <bage@debian.org>  Tue, 10 Jan 2023 01:54:24 +0100
+
 swupdate (2022.12+dfsg-1) unstable; urgency=medium
 
   * New upstream version 2022.12
