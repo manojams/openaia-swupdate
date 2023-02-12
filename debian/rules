@@ -6,7 +6,7 @@ export CROSS_COMPILE ?= $(DEB_HOST_GNU_TYPE)-
 endif
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic -I/usr/include/p11-kit-1
 export LIBDIR=usr/lib/${DEB_HOST_MULTIARCH}
 export HAVE_LUA=n
 ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
@@ -49,6 +49,9 @@ ifeq (,$(filter pkg.swupdate.nohwcompat,$(DEB_BUILD_PROFILES)))
 endif
 ifeq (,$(filter pkg.swupdate.nosigning,$(DEB_BUILD_PROFILES)))
 	echo CONFIG_SIGNED_IMAGES=y >> configs/debian_defconfig
+endif
+ifneq (,$(filter pkg.swupdate.p11,$(DEB_BUILD_PROFILES)))
+	echo CONFIG_PKCS11=y >> configs/debian_defconfig
 endif
 ifneq (,$(LUA_VERSION))
 	echo CONFIG_LUAPKG=\"lua$(LUA_VERSION)\" >> configs/debian_defconfig
