@@ -69,7 +69,7 @@ endif
 
 override_dh_auto_build:
 ifeq (,$(filter nodoc,$(DEB_BUILD_OPTIONS) $(DEB_BUILD_PROFILES)))
-	$(MAKE) man latexpdf
+	$(MAKE) latexpdf man
 	mv doc/build/man/client.1 doc/build/man/swupdate-client.1
 	mv doc/build/man/ipc.1 doc/build/man/swupdate-ipc.1
 	mv doc/build/man/progress.1 doc/build/man/swupdate-progress.1
