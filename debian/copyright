@@ -122,6 +122,11 @@ Files:     corelib/swupdate_decrypt_pkcs11.c
 Copyright: 2020, Linutronix GmbH
 License:   GPL-2
 
+Files:     corelib/swupdate_pkcs7_verify.c
+Copyright: 2019 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
+           2023 Bastian Germann
+License:   GPL-2
+
 Files:     include/network_ipc.h
            ipc/network_ipc.c
 Copyright: 2008-2020 DENX Software Engineering, Stefano Babic <sbabic@denx.de>
@@ -294,11 +299,7 @@ Files:     tools/swupdate-ipc.c
 Copyright: 2021 Stefano Babic, DENX Software Engineering, sbabic@denx.de.
 License:   GPL-2
 
-Files:     examples/client/*
-Copyright: 2021 Blueye Robotics AS
-License:   GPL-2
-
-Files:     examples/client/swupdate_client.py
+Files:     tools/python/swupdateclient/*
 Copyright: 2018 Stefano Babic <sbabic@denx.de>
            2021 Blueye Robotics AS
 License:   GPL-2
