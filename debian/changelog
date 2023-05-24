@@ -1,3 +1,16 @@
+swupdate (2023.05+dfsg-1) experimental; urgency=medium
+
+  * New upstream version 2023.05+dfsg
+  * Require zchunk with ZCK_NO_WRITE symbol
+  * Enable copy handler
+  * d/copyright: Apply 2023.05 changes
+  * Enable all suricatta configurations
+  * Switch to wolfSSL crypto backend
+  * Clean/build statemachine.png at the right time
+  * Enable btrfs creation
+
+ -- Bastian Germann <bage@debian.org>  Wed, 24 May 2023 13:06:08 +0200
+
 swupdate (2022.12+dfsg-4) unstable; urgency=medium
 
   * Enable backported libebgenv-dev
