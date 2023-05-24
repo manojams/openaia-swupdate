@@ -1,18 +1,56 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2018 Stefano Babic <sbabic@denx.de>
 # SPDX-FileCopyrightText: 2021 Blueye Robotics AS
 #
 # SPDX-License-Identifier:     GPL-2.0-only
 #
 
+import argparse
 import asyncio
 import json
-import requests
-import websockets
 import logging
-import string
-import argparse
+import os
 import sys
+import string
+from swupdateclient import __about__
+from typing import List, Optional, Tuple, Union
+
+
+import requests
+from termcolor import colored
+import websockets
+
+
+LOGGING_MAPPING = {
+    "3": logging.ERROR,
+    "4": logging.WARNING,
+    "6": logging.INFO,
+    "7": logging.DEBUG,
+}
+
+
+class ColorFormatter(logging.Formatter):
+    """Custom logging formatter with colorized output"""
+
+    COLORS = {
+        logging.DEBUG: None,
+        logging.INFO: None,
+        logging.WARNING: "yellow",
+        logging.ERROR: "red",
+    }
+
+    ATTRIBUTES = {
+        logging.DEBUG: [],
+        logging.INFO: ["bold"],
+        logging.WARNING: ["bold"],
+        logging.ERROR: ["bold"],
+    }
+
+    def format(self, record):
+        return logging.Formatter(colored(
+            "%(levelname)s:%(name)s:%(message)s",
+            self.COLORS[record.levelno],
+            attrs=self.ATTRIBUTES[record.levelno])
+        ).format(record)
 
 
 class SWUpdater:
@@ -21,15 +59,18 @@ class SWUpdater:
     url_upload = "http://{}:{}/upload"
     url_status = "ws://{}:{}/ws"
 
-    def __init__(self, path_image, host_name, port=8080, logger=None):
+    def __init__(self, path_image, host_name, port=8080, logger=None, log_level=logging.DEBUG):
         self._image = path_image
         self._host_name = host_name
         self._port = port
         if logger is not None:
             self._logger = logger
         else:
-            logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+            handler = logging.StreamHandler()
+            handler.setFormatter(ColorFormatter())
             self._logger = logging.getLogger("swupdate")
+            self._logger.addHandler(handler)
+            self._logger.setLevel(log_level)
 
     async def wait_update_finished(self):
         self._logger.info("Waiting for messages on websocket connection")
@@ -43,35 +84,37 @@ class SWUpdater:
                         message = "".join(
                             filter(lambda x: x in set(string.printable), message)
                         )
-
-                    except Exception as err:
-                        self._logger.warning(err)
+                    except Exception:
+                        self._logger.exception("Unknown exception")
                         continue
 
                     try:
                         data = json.loads(message)
                     except json.decoder.JSONDecodeError:
                         # As of 2021.04, the version info message contains invalid json
-                        self._logger.warning(f"json parse error: {message}")
+                        self._logger.warning("json parse error: %s", message)
                         continue
 
                     if data["type"] != "message":
                         continue
 
-                    self._logger.info(data["text"])
+                    self._logger.log(
+                        LOGGING_MAPPING[data["level"]],
+                        data["text"])
+
                     if "SWUPDATE successful" in data["text"]:
                         return True
                     if "Installation failed" in data["text"]:
                         return False
-
-        except Exception as err:
-            self._logger.error(err)
+        except Exception:
+            self._logger.exception("Unknown exception")
             return False
 
     def sync_upload(self, swu_file, timeout):
         return requests.post(
             self.url_upload.format(self._host_name, self._port),
             files={"file": swu_file},
+            headers={"Cache-Control": "no-cache"},
             timeout=timeout,
         )
 
@@ -86,8 +129,8 @@ class SWUpdater:
 
             if response.status_code != 200:
                 self._logger.error(
-                    "Cannot upload software image: {}".format(response.status_code)
-                )
+                    "Cannot upload software image: %s",
+                    response.status_code)
                 return False
 
             self._logger.info(
@@ -96,11 +139,11 @@ class SWUpdater:
             )
             return True
         except ValueError:
-            self._logger.info("No connection to host, exit")
+            self._logger.error("No connection to host, exit")
         except FileNotFoundError:
-            self._logger.info("swu file not found")
-        except requests.exceptions.ConnectionError as e:
-            self._logger.info("Connection Error:\n%s" % str(e))
+            self._logger.error("swu file not found")
+        except requests.exceptions.ConnectionError:
+            self._logger.exception("Connection error")
         return False
 
     async def start_tasks(self, timeout):
@@ -115,7 +158,7 @@ class SWUpdater:
         try:
             result = await asyncio.wait_for(ws_task, timeout=timeout)
         except asyncio.TimeoutError:
-            self._logger.info("timeout!")
+            self._logger.error("timeout!")
             return False
 
         return result
@@ -124,7 +167,7 @@ class SWUpdater:
         return asyncio.run(self.start_tasks(timeout))
 
 
-if __name__ == "__main__":
+def client (args: List[str]) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("swu_file", help="Path to swu image")
     parser.add_argument("host_name", help="Host name")
@@ -136,7 +179,33 @@ if __name__ == "__main__":
         default=300,
         nargs="?",
     )
+    parser.add_argument(
+        "--log-level", help="change log level (error, info, warning, debug)",
+        type=str, metavar="[LEVEL]",
+        choices=["error", "info", "warning", "debug"], default="debug"
+    )
+    parser.add_argument(
+        "--color", help="colorize messages (auto, always or never)", type=str,
+        metavar="[WHEN]", choices=["auto", "always", "never"], default="auto"
+    )
 
     args = parser.parse_args()
-    updater = SWUpdater(args.swu_file, args.host_name, args.port)
+
+    # Configure logging colors
+    if args.color == "always":
+        os.environ["FORCE_COLOR"] = "yes"
+    elif args.color == "never":
+        os.environ["NO_COLOR"] = "yes"
+
+    updater = SWUpdater(
+        args.swu_file,
+        args.host_name,
+        args.port,
+        log_level=args.log_level.upper())
     updater.update(timeout=args.timeout)
+
+def main():
+    client(sys.argv[1:])
+
+if __name__ == "__main__":
+    main()

@@ -17,6 +17,7 @@
  * as well as external use are defined in progress_ipc.h
  */
 void swupdate_progress_init(unsigned int nsteps);
+void swupdate_progress_addstep(void);
 void swupdate_progress_update(unsigned int perc);
 void swupdate_progress_inc_step(const char *image, const char *handler_name);
 void swupdate_progress_step_completed(void);
@@ -24,7 +25,7 @@ void swupdate_progress_end(RECOVERY_STATUS status);
 void swupdate_progress_done(const char *info);
 void swupdate_progress_info(RECOVERY_STATUS status, int cause, const char *msg);
 
-void swupdate_download_update(unsigned int perc, unsigned long long totalbytes);
+void swupdate_download_update(unsigned int perc, unsigned long long totalbytes, sourcetype source);
 
 void *progress_bar_thread (void *data);
 

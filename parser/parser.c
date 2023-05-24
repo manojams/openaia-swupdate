@@ -20,6 +20,7 @@
 #include "bsdqueue.h"
 #include "util.h"
 #include "swupdate.h"
+#include "hw-compatibility.h"
 #include "parselib.h"
 #include "parsers.h"
 #include "swupdate_dict.h"
@@ -162,18 +163,13 @@ static int parser_follow_link(parsertype p, void *cfg, void *elem,
 static void *find_node(parsertype p, void *root, const char *field,
 			struct swupdate_cfg *swcfg)
 {
-	const char **nodes;
+	const char *nodes[MAX_PARSED_NODES];
 	void *node = NULL;
 
 	if (!field)
 		return NULL;
 
-	nodes = (const char **)calloc(MAX_PARSED_NODES, sizeof(*nodes));
-	if (!nodes)
-		return NULL;
-
 	node = find_node_and_path(p, root, field, swcfg, nodes);
-	free(nodes);
 
 	return node;
 }
@@ -928,7 +924,8 @@ static int parser(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 	}
 
 	if (swcfg->embscript) {
-		TRACE("Found Lua Software:\n%s", swcfg->embscript);
+		if (loglevel >= DEBUGLEVEL)
+			TRACE("Found Lua Software:\n%s", swcfg->embscript);
 		L = lua_parser_init(swcfg->embscript, &swcfg->bootloader);
 		if (!L) {
 			ERROR("Required embedded script that cannot be loaded");
@@ -936,7 +933,7 @@ static int parser(parsertype p, void *cfg, struct swupdate_cfg *swcfg)
 		}
 	}
 	if (get_hw_revision(&swcfg->hw) < 0) {
-		TRACE("Hardware compatibiliy not found");
+		TRACE("Hardware compatibility not found");
 	}
 
 	/* Now parse the single elements */

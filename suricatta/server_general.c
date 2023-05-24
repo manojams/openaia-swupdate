@@ -25,29 +25,19 @@
 #include <sys/time.h>
 #include <swupdate_status.h>
 #include "suricatta/suricatta.h"
+#include "suricatta/server.h"
 #include "suricatta_private.h"
 #include "parselib.h"
 #include "channel.h"
 #include <curl/curl.h>
 #include "channel_curl.h"
 #include "state.h"
-#include "parselib.h"
 #include "swupdate_settings.h"
 #include "swupdate_dict.h"
 #include "server_general.h"
 #include <progress_ipc.h>
 #include <pctl.h>
 #include <pthread.h>
-
-/* Prototypes for "public" functions */
-void server_print_help(void);
-server_op_res_t server_has_pending_action(int *action_id);
-server_op_res_t server_stop(void);
-server_op_res_t server_ipc(ipc_message *msg);
-server_op_res_t server_start(char *fname, int argc, char *argv[]);
-server_op_res_t server_install_update(void);
-server_op_res_t server_send_target_data(void);
-unsigned int server_get_polling_interval(void);
 
 /*
  * This is a "specialized" map_http_retcode() because
@@ -66,6 +56,7 @@ static struct option long_options[] = {
     {"retrywait", required_argument, NULL, 'w'},
     {"cache", required_argument, NULL, '2'},
     {"max-download-speed", required_argument, NULL, 'n'},
+    {"server", required_argument, NULL, 'S'},
     {NULL, 0, NULL, 0}};
 
 static unsigned short mandatory_argument_count = 0;
@@ -89,7 +80,7 @@ static server_progress_data progdata;
 #define ALL_MANDATORY_SET	(URL_BIT)
 
 /*
- * Defibe max size for a log message
+ * Define max size for a log message
  */
 #define MAX_LOG_SIZE 1024
 
@@ -332,6 +323,9 @@ static void *server_progress_thread (void *data)
 		if (logbuffer) {
 			channel_data.request_body = logbuffer;
 			channel_data.method = CHANNEL_PUT;
+			/* .format is already specified in channel_data_defaults,
+			 * but being explicit doesn't hurt. */
+			channel_data.format = CHANNEL_PARSE_NONE;
 			channel_data.content_type = "application/text";
 			result = map_channel_retcode(channel->put(channel, (void *)&channel_data));
 			if (result != SERVER_OK)
@@ -483,7 +477,7 @@ static server_op_res_t server_get_deployment_info(channel_t *channel, channel_da
 	return result;
 }
 
-server_op_res_t server_has_pending_action(int *action_id)
+static server_op_res_t server_has_pending_action(int *action_id)
 {
 	*action_id = 0;
 
@@ -497,18 +491,17 @@ server_op_res_t server_has_pending_action(int *action_id)
 					  &channel_data);
 }
 
-server_op_res_t server_send_target_data(void)
+static server_op_res_t server_send_target_data(void)
 {
-
 	return SERVER_OK;
 }
 
-unsigned int server_get_polling_interval(void)
+static unsigned int server_get_polling_interval(void)
 {
 	return server_general.polling_interval;
 }
 
-void server_print_help(void)
+static void server_print_help(void)
 {
 	fprintf(
 	    stdout,
@@ -530,7 +523,7 @@ void server_print_help(void)
 	    CHANNEL_DEFAULT_RESUME_DELAY);
 }
 
-server_op_res_t server_install_update(void)
+static server_op_res_t server_install_update(void)
 {
 	channel_data_t channel_data = channel_data_defaults;
 	server_op_res_t result = SERVER_OK;
@@ -606,7 +599,7 @@ static int server_general_settings(void *elem, void  __attribute__ ((__unused__)
 	return 0;
 }
 
-server_op_res_t server_start(char *fname, int argc, char *argv[])
+static server_op_res_t server_start(const char *fname, int argc, char *argv[])
 {
 	int choice = 0;
 
@@ -630,7 +623,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	/* reset to optind=1 to parse suricatta's argument vector */
 	optind = 1;
 	opterr = 0;
-	while ((choice = getopt_long(argc, argv, "u:l:r:w:p:2:a:n",
+	while ((choice = getopt_long(argc, argv, "u:l:r:w:p:2:a:nS:",
 				     long_options, NULL)) != -1) {
 		switch (choice) {
 		case 'u':
@@ -672,6 +665,9 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 				(unsigned int)ustrtoull(optarg, NULL, 10);
 			break;
 
+		/* Ignore the --server option which is already parsed by the caller. */
+		case 'S':
+			break;
 		case '?':
 		/* Ignore not recognized options, they can be already parsed by the caller */
 		default:
@@ -714,7 +710,7 @@ server_op_res_t server_start(char *fname, int argc, char *argv[])
 	return SERVER_OK;
 }
 
-server_op_res_t server_stop(void)
+static server_op_res_t server_stop(void)
 {
 	(void)server_general.channel->close(server_general.channel);
 	free(server_general.channel);
@@ -722,7 +718,24 @@ server_op_res_t server_stop(void)
 	return SERVER_OK;
 }
 
-server_op_res_t server_ipc(ipc_message __attribute__ ((__unused__)) *msg)
+static server_op_res_t server_ipc(ipc_message __attribute__ ((__unused__)) *msg)
 {
 	return SERVER_OK;
+}
+
+static server_t server = {
+	.has_pending_action = &server_has_pending_action,
+	.install_update = &server_install_update,
+	.send_target_data = &server_send_target_data,
+	.get_polling_interval = &server_get_polling_interval,
+	.start = &server_start,
+	.stop = &server_stop,
+	.ipc = &server_ipc,
+	.help = &server_print_help,
+};
+
+__attribute__((constructor))
+static void register_server_general(void)
+{
+	register_server("general", &server);
 }

@@ -45,6 +45,7 @@
 #include "pctl.h"
 #include "state.h"
 #include "bootloader.h"
+#include "hw-compatibility.h"
 
 #define BUFF_SIZE	 4096
 #define PERCENT_LB_INDEX	4
@@ -681,7 +682,6 @@ void *network_initializer(void *data)
 			notify(FAILURE, RECOVERY_ERROR, ERRORLEVEL, "Image invalid or corrupted. Not installing ...");
 		}
 
-		swupdate_progress_inc_step("", "");
 		swupdate_progress_end(inst.last_install);
 
 		/*

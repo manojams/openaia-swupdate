@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
@@ -19,6 +20,7 @@
 
 #include "generated/autoconf.h"
 #include "cpiohdr.h"
+#include "swupdate.h"
 #include "util.h"
 #include "sslapi.h"
 #include "progress.h"
@@ -138,12 +140,12 @@ int copy_write(void *out, const void *buf, size_t len)
 		if (ret < 0) {
 			if (errno == EINTR)
 				continue;
-			ERROR("cannot write %lu bytes: %s", len, strerror(errno));
+			ERROR("cannot write %" PRIuPTR " bytes: %s", len, strerror(errno));
 			return -1;
 		}
 
 		if (ret == 0) {
-			ERROR("cannot write %lu bytes: %s", len, strerror(errno));
+			ERROR("cannot write %" PRIuPTR " bytes: %s", len, strerror(errno));
 			return -1;
 		}
 
