@@ -55,12 +55,9 @@ static void resetterm(void)
 }
 
 static void textcolor(int attr, int fg, int bg)
-{	char command[13];
-
-	/* Command is the control command to the terminal */
-	sprintf(command, "%c[%d;%d;%dm", 0x1B, attr, fg + 30, bg + 40);
+{
 	if (!silent)
-		fprintf(stdout, "%s", command);
+		fprintf(stdout, "%c[%d;%d;%dm", 0x1B, attr, fg + 30, bg + 40);
 }
 
 static struct option long_options[] = {
@@ -214,7 +211,7 @@ int main(int argc, char **argv)
 	bool wait_update = true;
 
 	/* Process options with getopt */
-	while ((c = getopt_long(argc, argv, "cwprhs:e:",
+	while ((c = getopt_long(argc, argv, "cwprhs:e:q",
 				long_options, NULL)) != EOF) {
 		switch (c) {
 		case 'c':

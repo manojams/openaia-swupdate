@@ -13,9 +13,6 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/stat.h>
-#if defined(__linux__)
-#include <linux/types.h>
-#endif
 #include <compat.h>
 #include <limits.h>
 #include <assert.h>
@@ -26,6 +23,7 @@
 #include "parselib.h"
 #include "swupdate_settings.h"
 #include "semver.h"
+#include "versions.h"
 
 /*
  * Read versions of components from a file, if provided

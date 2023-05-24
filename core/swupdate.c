@@ -48,6 +48,8 @@
 #include "pctl.h"
 #include "state.h"
 #include "bootloader.h"
+#include "versions.h"
+#include "hw-compatibility.h"
 
 #ifdef CONFIG_SYSTEMD
 #include <systemd/sd-daemon.h>
@@ -93,7 +95,9 @@ static struct option long_options[] = {
 	{"key", required_argument, NULL, 'k'},
 	{"ca-path", required_argument, NULL, 'k'},
 	{"cert-purpose", required_argument, NULL, '1'},
+#if defined(CONFIG_SIGALG_CMS) && !defined(CONFIG_SSL_IMPL_WOLFSSL)
 	{"forced-signer-name", required_argument, NULL, '2'},
+#endif
 #endif
 #ifdef CONFIG_ENCRYPTED_IMAGES
 	{"key-aes", required_argument, NULL, 'K'},
@@ -149,7 +153,9 @@ static void usage(char *programname)
 		" -k, --key <public key file>    : file with public key to verify images\n"
 		"     --cert-purpose <purpose>   : set expected certificate purpose\n"
 		"                                  [emailProtection|codeSigning] (default: emailProtection)\n"
+#if defined(CONFIG_SIGALG_CMS) && !defined(CONFIG_SSL_IMPL_WOLFSSL)
 		"     --forced-signer-name <cn>  : set expected common name of signer certificate\n"
+#endif
 		"     --ca-path                  : path to the Certificate Authority (PEM)\n"
 #endif
 #ifdef CONFIG_ENCRYPTED_IMAGES
@@ -506,7 +512,7 @@ int main(int argc, char **argv)
 			loglevel = strtoul(optarg, NULL, 10);
 			break;
 		case 'v':
-			loglevel = TRACELEVEL;
+			loglevel = LASTLOGLEVEL;
 			break;
 		case '0':
 			printf("%s", BANNER);
@@ -548,7 +554,7 @@ int main(int argc, char **argv)
 			exit(EXIT_FAILURE);
 		}
 
-		loglevel = swcfg.verbose ? TRACELEVEL : swcfg.loglevel;
+		loglevel = swcfg.verbose ? LASTLOGLEVEL : swcfg.loglevel;
 
 		/*
 		 * The following sections are optional, hence -ENODATA error code is
@@ -579,7 +585,7 @@ int main(int argc, char **argv)
 		}
 		switch (c) {
 		case 'v':
-			loglevel = TRACELEVEL;
+			loglevel = LASTLOGLEVEL;
 			break;
 #ifdef CONFIG_UBIATTACH
 		case 'b':

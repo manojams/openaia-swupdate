@@ -193,6 +193,14 @@ ifeq ($(CONFIG_EXT_FILESYSTEM),y)
 LDLIBS += ext2fs uuid blkid
 endif
 
+ifeq ($(CONFIG_BTRFS_FILESYSTEM_USELIBMKFS),y)
+LDLIBS += mkfsbtrfs
+endif
+
+ifeq ($(CONFIG_BTRFS_FILESYSTEM),y)
+LDLIBS += btrfsutil udev
+endif
+
 ifeq ($(CONFIG_UNIQUEUUID),y)
 LDLIBS += blkid
 endif
@@ -209,16 +217,25 @@ ifeq ($(CONFIG_UCFWHANDLER),y)
 LDLIBS += gpiod
 endif
 
+
+ifeq ($(CONFIG_BOOTLOADER_STATIC_LINKED),y)
+ifeq ($(CONFIG_UBOOT),y)
+LDLIBS += ubootenv
+endif
+ifeq ($(CONFIG_BOOTLOADER_EBG),y)
+LDLIBS += ebgenv
+endif
+else
 ifeq ($(CONFIG_UBOOT),y)
 LDLIBS += dl
+endif
+ifeq ($(CONFIG_BOOTLOADER_EBG),y)
+LDLIBS += dl
+endif
 endif
 
 ifeq ($(CONFIG_SYSTEMD),y)
 LDLIBS += systemd
-endif
-
-ifeq ($(CONFIG_BOOTLOADER_EBG),y)
-LDLIBS += dl
 endif
 
 ifeq ($(CONFIG_BOOTLOADER_DEFAULT_NONE),y)

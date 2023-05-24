@@ -4,17 +4,12 @@ SPDX-FileCopyrightText: 2021 Blueye Robotics AS
 SPDX-License-Identifier: GPL-2.0-only
 -->
 
-## Install dependencies
-
-### apt
-```
-sudo apt update
-sudo apt install python3-websockets python3-requests
-```
+## Installing swupdateclient
 
 ### pip
 ```
-pip install websockets requests
+cd tools/python/swupdateclient
+pip3 install .
 ```
 
 ### pipenv
@@ -24,14 +19,14 @@ pipenv install
 
 ## Usage
 
-### apt/pip
+### pip
 ```
-./swupdate_client.py <path-to-swu> <host_name> [port]
+swupdateclient <path-to-swu> <host_name> [port]
 ```
 
 ### pipenv
 ```
-pipenv run ./swupdate_client.py <path-to-swu> <host_name> [port]
+pipenv run swupdateclient <path-to-swu> <host_name> [port]
 ```
 
 
@@ -49,5 +44,5 @@ else:
 
 ### Formatting
 ```
-black swupdate_client.py
+black swupdateclient
 ```

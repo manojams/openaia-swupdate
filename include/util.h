@@ -12,12 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #if defined(__linux__)
 #include <linux/types.h>
 #endif
-#include "swupdate.h"
+#include "globals.h"
 #include "swupdate_status.h"
-#include "swupdate_settings.h"
+#include "swupdate_dict.h"
 #include "compat.h"
 
 #define NOTIFY_BUF_SIZE 	2048
@@ -31,6 +32,12 @@
 
 #define HWID_REGEXP_PREFIX	"#RE:"
 #define SWUPDATE_ALIGN(A,S)    (((A) + (S) - 1) & ~((S) - 1))
+
+#define BOOTVAR_TRANSACTION "recovery_status"
+
+struct img_type;
+struct imglist;
+struct hw_type;
 
 extern int loglevel;
 extern int exit_code;
@@ -47,6 +54,13 @@ typedef enum {
 	SERVER_UPDATE_CANCELED,
 	SERVER_ID_REQUESTED,
 } server_op_res_t;
+
+enum {
+  COMPRESSED_FALSE,
+  COMPRESSED_TRUE,
+  COMPRESSED_ZLIB,
+  COMPRESSED_ZSTD,
+};
 
 /*
  * loglevel is used into TRACE / ERROR
@@ -83,6 +97,8 @@ typedef void (*notifier) (RECOVERY_STATUS status, int error, int level, const ch
 void notify(RECOVERY_STATUS status, int error, int level, const char *msg);
 void notify_init(void);
 void notifier_set_color(int level, char *col);
+
+#define __FILENAME__ (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
 #define swupdate_notify(status, format, level, arg...) do { \
 	if (loglevel >= level) { \
 		char tmpbuf[NOTIFY_BUF_SIZE]; \
@@ -90,7 +106,7 @@ void notifier_set_color(int level, char *col);
 			if (loglevel >= DEBUGLEVEL) \
 				snprintf(tmpbuf, sizeof(tmpbuf), \
 				     	"ERROR %s : %s : %d : " format, \
-					       	__FILE__, \
+						__FILENAME__, \
 					       	__func__, \
 					       	__LINE__, \
 						## arg); \
@@ -134,6 +150,8 @@ void notifier_set_color(int level, char *col);
 } while (0)
 
 
+#define IS_STR_EQUAL(s,s1) (s && s1 && !strcmp(s,s1))
+
 #define LG_16 4
 #define FROM_HEX(f) from_ascii (f, sizeof f, LG_16)
 uintmax_t
@@ -156,6 +174,11 @@ int IsValidHash(const unsigned char *hash);
 		typeof(b) _b = b;\
 		_a < _b ? _a : _b; })
 
+#define min_t(type,x,y) \
+	({ type __x = (x); type __y = (y); __x < __y ? __x: __y; })
+#define max_t(type,x,y) \
+	({ type __x = (x); type __y = (y); __x > __y ? __x: __y; })
+
 char *sdup(const char *str);
 bool strtobool(const char *s);
 
@@ -165,7 +188,6 @@ bool strtobool(const char *s);
 typedef int (*writeimage) (void *out, const void *buf, size_t len);
 
 void *saferealloc(void *ptr, size_t size);
-int openfile(const char *filename);
 int copy_write(void *out, const void *buf, size_t len);
 #if defined(__FreeBSD__)
 int copy_write_padded(void *out, const void *buf, size_t len);
@@ -198,11 +220,8 @@ char *substring(const char *src, int first, int len);
 char *string_tolower(char *s);
 size_t snescape(char *dst, size_t n, const char *src);
 void freeargs (char **argv);
-int get_hw_revision(struct hw_type *hw);
-void get_sw_versions(swupdate_cfg_handle *handle, struct swupdate_cfg *sw);
 int compare_versions(const char* left_version, const char* right_version);
 int hwid_match(const char* rev, const char* hwrev);
-int check_hw_compatibility(struct swupdate_cfg *cfg);
 int count_elem_list(struct imglist *list);
 unsigned int count_string_array(const char **nodes);
 void free_string_array(char **nodes);

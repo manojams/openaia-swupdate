@@ -59,6 +59,16 @@ static struct swupdate_progress progress;
 /*
  * This must be called after acquiring the mutex
  * for the progress structure
+ * It is assumed that the listeners are reading
+ * the events and consume the messages. To avoid deadlocks,
+ * SWUpdate will try to send the message without blocking,
+ * and if send() returns EWOULDBLOCk, tries some times again
+ * with a 1 second delay.
+ * This is because SWUpdate could send a lot of events,
+ * and listeners cannot be scheduled at time. The delay just
+ * slow down the update when happens. If the message cannot be
+ * sent after retries, SWUpdate will consider the listener
+ * dead and removes it from the list.
  */
 static void send_progress_msg(void)
 {
@@ -67,12 +77,22 @@ static void send_progress_msg(void)
 	void *buf;
 	size_t count;
 	ssize_t n;
+	bool tryagain;
+	const int maxAttempts = 5;
 
 	SIMPLEQ_FOREACH_SAFE(conn, &pprog->conns, next, tmp) {
 		buf = &pprog->msg;
 		count = sizeof(pprog->msg);
+		errno = 0;
 		while (count > 0) {
-			n = send(conn->sockfd, buf, count, MSG_NOSIGNAL);
+			int attempt = 0;
+			do {
+				n = send(conn->sockfd, buf, count, MSG_NOSIGNAL | MSG_DONTWAIT);
+				attempt++;
+				tryagain = n <= 0 && (errno == EWOULDBLOCK || errno == EAGAIN);
+				if (tryagain)
+					sleep(1);
+			} while (tryagain && attempt < maxAttempts);
 			if (n <= 0) {
 				close(conn->sockfd);
 				SIMPLEQ_REMOVE(&pprog->conns, conn,
@@ -86,7 +106,7 @@ static void send_progress_msg(void)
 	}
 }
 
-static void _swupdate_download_update(unsigned int perc, unsigned long long totalbytes)
+static void _swupdate_download_update(unsigned int perc, unsigned long long totalbytes, sourcetype source)
 {
 	/*
 	 * TODO: totalbytes should be forwarded correctly
@@ -96,6 +116,7 @@ static void _swupdate_download_update(unsigned int perc, unsigned long long tota
 	pthread_mutex_lock(&pprog->lock);
 	if (perc != pprog->msg.dwl_percent) {
 		pprog->msg.status = DOWNLOAD;
+		pprog->msg.source = source;
 		pprog->msg.dwl_percent = perc;
 		pprog->msg.dwl_bytes = totalbytes;
 		send_progress_msg();
@@ -119,6 +140,13 @@ void swupdate_progress_init(unsigned int nsteps) {
 	pthread_mutex_unlock(&pprog->lock);
 }
 
+void swupdate_progress_addstep(void) {
+	struct swupdate_progress *pprog = &progress;
+	pthread_mutex_lock(&pprog->lock);
+	pprog->msg.nsteps++;
+	pthread_mutex_unlock(&pprog->lock);
+}
+
 void swupdate_progress_update(unsigned int perc)
 {
 	struct swupdate_progress *pprog = &progress;
@@ -131,7 +159,7 @@ void swupdate_progress_update(unsigned int perc)
 	pthread_mutex_unlock(&pprog->lock);
 }
 
-void swupdate_download_update(unsigned int perc, unsigned long long totalbytes)
+void swupdate_download_update(unsigned int perc, unsigned long long totalbytes, sourcetype source)
 {
 	char	info[PRINFOSIZE];   		/* info */
 
@@ -145,13 +173,13 @@ void swupdate_download_update(unsigned int perc, unsigned long long totalbytes)
 		 * and decode them in the notifier, in this case
 		 * the progress_notifier
 		 */
-		snprintf(info, sizeof(info) - 1, "%d-%llu", perc, totalbytes);
+		snprintf(info, sizeof(info) - 1, "%d-%llu-%d", perc, totalbytes, source);
 		notify(PROGRESS, RECOVERY_DWL, TRACELEVEL, info);
 		return;
 	}
 
 	/* Called by main process, emit a progress message */
-	_swupdate_download_update(perc, totalbytes);
+	_swupdate_download_update(perc, totalbytes, source);
 }
 
 void swupdate_progress_inc_step(const char *image, const char *handler_name)

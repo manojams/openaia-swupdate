@@ -23,6 +23,8 @@
 #include "handler.h"
 #include "bootloader.h"
 #include "progress.h"
+#include "swupdate_image.h"
+#include "hw-compatibility.h"
 
 #define LUA_TYPE_PEMBSCR 1
 #define LUA_TYPE_HANDLER 2
@@ -1563,7 +1565,8 @@ int lua_parser_fn(lua_State *L, const char *fcn, struct img_type *img)
 		return -1;
 	}
 
-	LUAstackDump(L);
+	if (loglevel >= DEBUGLEVEL)
+		LUAstackDump(L);
 
 	ret = lua_toboolean(L, -2) ? 0 : -1;
 
