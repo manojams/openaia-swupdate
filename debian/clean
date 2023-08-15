@@ -1,5 +1,6 @@
 configs/debian_defconfig
 doc/source/images/statemachine.png
+index.html
 test/test_crypt
 test/test_hash
 test/test_json

@@ -81,7 +81,7 @@ endif
 ifeq (,$(filter pkg.swupdate.bpo,$(DEB_BUILD_PROFILES)))
 	sassc -Iweb-app web-app/scss/bootstrap.scss > web-app/css/bootstrap.css
 	# replace rule from gulp's minify-html
-	sed -i 's|node_modules/bootstrap/dist/css|css|' web-app/index.html
+	sed 's|node_modules/bootstrap/dist/css|css|' web-app/index.html > index.html
 endif
 
 override_dh_auto_test:
