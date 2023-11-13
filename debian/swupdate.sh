@@ -16,7 +16,7 @@ for f in `(test -d /usr/lib/swupdate/conf.d/ && ls -1 /usr/lib/swupdate/conf.d/;
   fi
 done
 
-#  handle variable escaping in a simmple way. Use exec to forward open filedescriptors from systemd open.
+#  handle variable escaping in a simple way. Use exec to forward open filedescriptors from systemd open.
 if [ "$SWUPDATE_WEBSERVER_ARGS" != "" -a  "$SWUPDATE_SURICATTA_ARGS" != "" ]; then
   exec /usr/bin/swupdate $SWUPDATE_ARGS -w "$SWUPDATE_WEBSERVER_ARGS" -u "$SWUPDATE_SURICATTA_ARGS"
 elif [ "$SWUPDATE_WEBSERVER_ARGS" != "" ]; then
