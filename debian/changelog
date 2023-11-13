@@ -1,3 +1,9 @@
+swupdate (2023.05+dfsg-4) unstable; urgency=medium
+
+  * Change SocketMode from default 0666 to 0664
+
+ -- Bastian Germann <bage@debian.org>  Mon, 13 Nov 2023 20:34:18 +0100
+
 swupdate (2023.05+dfsg-3) unstable; urgency=medium
 
   * swupdate-www: Do not sed replace in-place (Closes: #1046423)
