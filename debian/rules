@@ -13,7 +13,7 @@ ifeq (,$(filter nolua,$(DEB_BUILD_PROFILES)))
 export LUA_VERSION=5.3
 export LUA_MODNAME=lua_swupdate
 export PKG_NAME=swupdate
-export DH_WITH=--with lua
+export DH_WITH=,lua
 export HAVE_LUA=y
 endif
 
@@ -109,4 +109,4 @@ override_dh_missing:
 	dh_missing --fail-missing
 
 %:
-	dh $@ $(DH_WITH)
+	dh $@ --with sysuser$(DH_WITH)
