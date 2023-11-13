@@ -6,6 +6,7 @@ Documentation=https://sbabic.github.io/swupdate
 [Socket]
 ListenStream=/tmp/sockinstctrl
 ListenStream=/tmp/swupdateprog
+SocketMode=0644
 
 [Install]
 WantedBy=sockets.target
