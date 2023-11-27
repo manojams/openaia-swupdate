@@ -1,3 +1,10 @@
+swupdate (2023.05+dfsg-5) unstable; urgency=medium
+
+  * Add swupdate system user
+  * Create the sockets for group use with SocketMode 0660
+
+ -- Bastian Germann <bage@debian.org>  Mon, 27 Nov 2023 11:10:38 +0100
+
 swupdate (2023.05+dfsg-4) unstable; urgency=medium
 
   * Change SocketMode from default 0666 to 0664
